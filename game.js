@@ -379,52 +379,63 @@ function checkCrushCollision(block, offsetX = 0, offsetY = 0) {
 }
 
 function checkAndPushRunners(block, dir) {
-    let blockMoved = false;
-    for (let r = 0; r < block.shape.length; r++) {
-        for (let c = 0; c < block.shape[r].length; c++) {
-            if (block.shape[r][c] !== 0) {
-                const blockCol = block.x + c;
-                const blockRow = block.y + r;
+    // Step 1: Check if the block can move to the new position first.
+    if (checkBlockCollision(block, dir, 0)) {
+        // If the block can't move, it can't push or crush anyone.
+        return false;
+    }
 
-                for (const character of characters) {
-                    if (character.isEliminated) continue;
+    // Step 2: Now that we know the block can move, check for runner interactions.
+    let blockMoved = true;
+    for (const character of characters) {
+        if (character.isEliminated) continue;
 
-                    const charCol = character.col;
-                    const charRow = Math.floor(character.y / BLOCK_SIZE);
+        const charCol = character.col;
+        const charRow = Math.floor(character.y / BLOCK_SIZE);
+        const nextCharCol = charCol + dir;
+        const isBlockedByGrid = nextCharCol < 0 || nextCharCol >= COLS || (gameGrid[charRow] && gameGrid[charRow][nextCharCol] !== 0);
 
+        // Find the block's solid piece that is adjacent to the runner
+        let pushingBlockPiece = null;
+        for (let r = 0; r < block.shape.length; r++) {
+            for (let c = 0; c < block.shape[r].length; c++) {
+                if (block.shape[r][c] !== 0) {
+                    const blockCol = block.x + c;
+                    const blockRow = block.y + r;
                     if (blockCol + dir === charCol && blockRow === charRow) {
-                        const nextCharCol = charCol + dir;
-                        const isBlockedByWorld = nextCharCol < 0 || nextCharCol >= COLS || (gameGrid[charRow] && gameGrid[charRow][nextCharCol] !== 0);
-
-                        // Check if the runner is being pushed into an empty space within the moving block itself
-                        let isPushedIntoBlock = false;
-                        for (let br = 0; br < block.shape.length; br++) {
-                            for (let bc = 0; bc < block.shape[br].length; bc++) {
-                                if (block.shape[br][bc] !== 0) {
-                                    if (block.x + bc === charCol + dir && block.y + br === charRow) {
-                                        isPushedIntoBlock = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (isPushedIntoBlock) break;
-                        }
-
-                        if (isBlockedByWorld || isPushedIntoBlock) {
-                            eliminateRunner(character);
-                        } else {
-                            character.col += dir;
-                            character.x = character.col * BLOCK_SIZE;
-                        }
+                        pushingBlockPiece = { r, c };
+                        break;
                     }
                 }
             }
+            if (pushingBlockPiece) break;
+        }
+
+        if (pushingBlockPiece) {
+            let isPushedIntoMovingBlock = false;
+            for (let br = 0; br < block.shape.length; br++) {
+                for (let bc = 0; bc < block.shape[br].length; bc++) {
+                    if (block.shape[br][bc] !== 0) {
+                        if (block.x + bc + dir === nextCharCol && block.y + br === charRow) {
+                            isPushedIntoMovingBlock = true;
+                            break;
+                        }
+                    }
+                }
+                if (isPushedIntoMovingBlock) break;
+            }
+
+            if (isBlockedByGrid || isPushedIntoMovingBlock) {
+                eliminateRunner(character);
+            } else {
+                character.col = nextCharCol;
+                character.x = character.col * BLOCK_SIZE;
+            }
         }
     }
-    if (!checkBlockCollision(block, dir, 0)) {
-        blockMoved = true;
-        block.x += dir;
-    }
+
+    // Finally, move the block now that all runner interactions for the move have been processed.
+    block.x += dir;
     return blockMoved;
 }
 
