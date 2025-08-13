@@ -1042,7 +1042,7 @@ function startGame() {
     specialActionCooldownTime = parseInt(specialActionTimeInput.value) * 1000;
     clearLinesEnabled = clearLinesCheck.checked;
 
-    linesRemaining = isNaN(parsedLines) || parsedLines <= 0 ? 5 : parsedLines;
+    linesRemaining = isNaN(parsedLines) || parsedLines <= 0 ? 70 : parsedLines;
     maxShotsPerRunner = isNaN(parsedMaxShots) || parsedMaxShots <= 0 ? 7 : parsedMaxShots;
     shotRechargeTime = isNaN(parsedRechargeTime) || parsedRechargeTime <= 0 ? 30000 : parsedRechargeTime * 1000;
     dropInterval = speedOptions[selectedSpeed] || 500;
@@ -1205,5 +1205,12 @@ backToMenuButton.addEventListener('click', () => {
 });
 
 window.addEventListener('load', () => {
+    // Set default menu values here
+    linesInput.value = 70;
+    polyominoStartSelect.value = 3;
+    polyominoEndSelect.value = 7;
+    polyominoTimeInput.value = 1;
+    specialActionCheck.checked = true;
+
     showMenu();
 });
