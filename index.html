@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pentomino Runners</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="menuScreen" class="menu-screen centered-container">
+        <div class="menu-content">
+            <h1 class="title">PENTOMINO RUNNERS</h1>
+            <div class="menu-options">
+                <h2 class="small-title">Game Settings</h2>
+                <div class="menu-item menu-option">
+                    <label for="runnerCountSelect">Number of Runners</label>
+                    <select id="runnerCountSelect">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                    </select>
+                </div>
+                <div class="menu-item menu-option">
+                    <label for="linesInput">Lines to Clear</label>
+                    <input type="number" id="linesInput" value="5" min="1" max="99">
+                </div>
+                <div class="menu-item menu-option">
+                    <label for="maxShotsInput">Shots per Runner</label>
+                    <input type="number" id="maxShotsInput" value="7" min="1" max="99">
+                </div>
+                <div class="menu-item menu-option">
+                    <label for="rechargeTimeInput">Shot Recharge Time (sec)</label>
+                    <input type="number" id="rechargeTimeInput" value="30" min="10" max="300">
+                </div>
+                <div class="menu-item menu-option">
+                    <label for="speedSelect">Initial Drop Speed</label>
+                    <select id="speedSelect">
+                        <option value="slow">Slow</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="fast">Fast</option>
+                        <option value="very-fast">Very Fast</option>
+                    </select>
+                </div>
+                <div class="menu-item menu-option">
+                    <label for="timeInput">Game Duration (min)</label>
+                    <input type="number" id="timeInput" value="5" min="1" max="60">
+                </div>
+                <h2 class="small-title">Polyominoes</h2>
+                <div class="menu-item menu-option">
+                    <label for="polyominoStartSelect">Starting Polyomino</label>
+                    <select id="polyominoStartSelect">
+                        <option value="1">1 (Monominoes)</option>
+                        <option value="2">2 (Dominoes)</option>
+                        <option value="3">3 (Trominoes)</option>
+                        <option value="4">4 (Tetrominoes)</option>
+                        <option value="5" selected>5 (Pentominoes)</option>
+                        <option value="6">6 (Hexominoes)</option>
+                        <option value="7">7 (Heptominoes)</option>
+                    </select>
+                </div>
+                <div class="menu-item menu-option">
+                    <label for="polyominoEndSelect">Ending Polyomino</label>
+                    <select id="polyominoEndSelect">
+                        <option value="1">1 (Monominoes)</option>
+                        <option value="2">2 (Dominoes)</option>
+                        <option value="3">3 (Trominoes)</option>
+                        <option value="4">4 (Tetrominoes)</option>
+                        <option value="5" selected>5 (Pentominoes)</option>
+                        <option value="6">6 (Hexominoes)</option>
+                        <option value="7">7 (Heptominoes)</option>
+                    </select>
+                </div>
+                <div class="menu-item menu-option">
+                    <label for="polyominoTimeInput">Level Up Time (min)</label>
+                    <input type="number" id="polyominoTimeInput" value="1.5" min="0.5" max="10" step="0.5">
+                </div>
+                <h2 class="small-title">Special Action (Q)</h2>
+                <div class="menu-item menu-option">
+                    <div class="label-group">
+                        <label for="specialActionCheck">Enable Q Action</label>
+                        <input type="checkbox" id="specialActionCheck">
+                    </div>
+                </div>
+                <div class="menu-item menu-option">
+                    <label for="specialActionTimeInput">Q Action Cooldown (sec)</label>
+                    <input type="number" id="specialActionTimeInput" value="60" min="10" max="300">
+                </div>
+                <h2 class="small-title">Game Rules</h2>
+                <div class="menu-item menu-option">
+                    <div class="label-group">
+                        <label for="clearLinesCheck">Clear Lines</label>
+                        <input type="checkbox" id="clearLinesCheck" checked>
+                    </div>
+                </div>
+                <button id="startGameButton" class="menu-item menu-option">START GAME</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="pauseScreen" class="pause-screen centered-container">
+        <div class="pause-content">
+            <h2 class="title">PAUSED</h2>
+            <div class="pause-menu-options">
+                <button id="resumeButton" class="pause-menu-option">RESUME</button>
+                <button id="backToMenuButton" class="pause-menu-option">BACK TO MAIN MENU</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="gameMessage" class="game-message centered-container">
+        <h2 id="gameMessageText" class="title"></h2>
+    </div>
+
+    <div id="countdownMessage" class="game-overlay-message centered-container">
+        <h2 id="countdownText" class="countdown-text"></h2>
+    </div>
+
+    <div id="polyominoLevelMessage" class="game-overlay-message centered-container">
+        <h2 id="polyominoLevelText" class="polyomino-level-text"></h2>
+    </div>
+
+    <div class="main-container">
+        <div class="game-ui">
+            <div class="game-info">
+                <h3>Block Controller</h3>
+                <p id="playerScoreDisplay">Score: <span>0</span></p>
+                <p id="linesRemainingDisplay">Lines Remaining: <span>5</span></p>
+                <p id="timerDisplay">Time: <span>05:00</span></p>
+            </div>
+            <h3>Runners</h3>
+            <div id="runnerStatusContainer" class="flex flex-col gap-4">
+                </div>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+        <div id="specialActionContainer" class="special-action-ui">
+            <h4>Q Power-Up</h4>
+            <div class="special-action-bar">
+                <div id="specialActionProgress" class="special-action-progress"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
