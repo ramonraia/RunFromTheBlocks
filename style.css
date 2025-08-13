@@ -1,0 +1,239 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+:root {
+    --bg-color: #1a202c;
+    --text-color: #f7fafc;
+    --accent-color: #ecc94b;
+}
+
+body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: 'Press Start 2P', cursive;
+    color: var(--text-color);
+    background-color: var(--bg-color);
+    overflow: hidden;
+    font-size: 14px;
+}
+
+.centered-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+.main-container {
+    display: none;
+    flex-direction: row;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 2rem;
+    width: 100%;
+    height: 100%;
+    padding: 2rem;
+    box-sizing: border-box;
+}
+
+#gameCanvas {
+    background-color: #4a5568;
+    border: 2px solid var(--text-color);
+}
+
+.game-ui {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 250px;
+}
+
+.player-status-item {
+    background-color: #2d3748;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.game-info {
+    background-color: #2d3748;
+    padding: 1rem;
+    border-radius: 0.5rem;
+}
+
+.bg-red-800 {
+    background-color: #9b2c2c;
+}
+
+.text-red-300 {
+    color: #f69999;
+}
+
+.shot-recharge-bar {
+    background-color: #4a5568;
+    height: 10px;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.shot-recharge-progress {
+    background-color: #48bb78;
+    height: 100%;
+    transition: width 0.1s linear;
+}
+
+.text-yellow-400 { color: #f6e05e; }
+.text-blue-400 { color: #63b3ed; }
+.text-green-400 { color: #68d391; }
+
+.title {
+    font-size: 2rem;
+    text-align: center;
+    margin-bottom: 2rem;
+}
+.small-title {
+    font-size: 1.5rem;
+    text-align: center;
+    margin-bottom: 1rem;
+}
+.menu-screen, .pause-screen, .game-message {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    height: 100%;
+    width: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background-color: rgba(0, 0, 0, 0.75);
+    z-index: 100;
+}
+
+.game-overlay-message {
+    display: none;
+    position: absolute;
+    top: 10%; /* Ajuste para o topo da tela */
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 150;
+    text-align: center;
+    text-shadow: 0 0 10px black;
+    opacity: 0;
+    animation: fade-in-out 3s forwards;
+}
+
+.game-overlay-message h2 {
+    margin: 0;
+}
+
+.countdown-text {
+    font-size: 5rem;
+    color: var(--accent-color);
+}
+.polyomino-level-text {
+    font-size: 2.5rem;
+    color: #4ade80;
+}
+
+@keyframes fade-in-out {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+    10% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    90% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1.2); }
+}
+
+.menu-content, .pause-content {
+    background-color: #2d3748;
+    padding: 2rem 4rem;
+    border-radius: 1rem;
+    border: 2px solid var(--accent-color);
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+    width: 350px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.menu-options, .pause-menu-options {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.menu-item, .pause-menu-option {
+    background-color: #4a5568;
+    border: none;
+    color: var(--text-color);
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.8rem;
+    transition: transform 0.2s, background-color 0.2s;
+    text-decoration: none;
+    display: block;
+    text-align: left;
+}
+
+.menu-item:hover, .pause-menu-option:hover, .focused-menu-item {
+    background-color: var(--accent-color);
+    color: var(--bg-color);
+    transform: scale(1.02);
+}
+
+.menu-item label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.7rem;
+}
+.menu-item .label-group {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.menu-item input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    cursor: pointer;
+}
+.menu-item select, .menu-item input {
+    width: 100%;
+    padding: 0.5rem;
+    background-color: #2d3748;
+    color: var(--text-color);
+    border: 1px solid var(--accent-color);
+    border-radius: 0.25rem;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.7rem;
+}
+
+.special-action-ui {
+    position: absolute;
+    top: 2rem;
+    right: 2rem;
+    width: 150px;
+    text-align: center;
+}
+
+.special-action-bar {
+    background-color: #2d3748;
+    height: 20px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--text-color);
+}
+
+.special-action-progress {
+    background-color: #9b2c2c;
+    height: 100%;
+    transition: width 0.1s linear, background-color 0.5s;
+    width: 0%;
+}
+.special-action-progress.ready {
+    background-color: #48bb78;
+}
