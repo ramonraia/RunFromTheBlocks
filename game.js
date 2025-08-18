@@ -64,8 +64,10 @@ let clearLinesEnabled = true;
 
 // State variables for fluid and simultaneous controls
 let keysPressed = {};
-let moveCounter = 0;
-const moveInterval = 50;
+let blockMoveCounter = 0;
+const blockMoveInterval = 100; // Intervalo de movimento do bloco
+let runnerMoveCounter = 0;
+const runnerMoveInterval = 50; // Intervalo de movimento dos corredores
 let lastRechargeTime = 0;
 
 // State variables for menu navigation
@@ -663,12 +665,16 @@ function gameLoop(time = 0) {
         }
     }
     
-    moveCounter += deltaTime;
-    if (moveCounter > moveInterval) {
+    blockMoveCounter += deltaTime;
+    if (blockMoveCounter > blockMoveInterval) {
         if (keysPressed['a'] || keysPressed['A']) { move(currentBlock, -1); }
         if (keysPressed['d'] || keysPressed['D']) { move(currentBlock, 1); }
         if (keysPressed['s'] || keysPressed['S']) { softDrop(); }
+        blockMoveCounter = 0;
+    }
 
+    runnerMoveCounter += deltaTime;
+    if (runnerMoveCounter > runnerMoveInterval) {
         if (characters[0] && !characters[0].isEliminated) {
             if (keysPressed['ArrowLeft']) { moveCharacter(characters[0], -1); }
             if (keysPressed['ArrowRight']) { moveCharacter(characters[0], 1); }
@@ -681,8 +687,7 @@ function gameLoop(time = 0) {
             if (keysPressed['j'] || keysPressed['J']) { moveCharacter(characters[2], -1); }
             if (keysPressed['l'] || keysPressed['L']) { moveCharacter(characters[2], 1); }
         }
-
-        moveCounter = 0;
+        runnerMoveCounter = 0;
     }
 
     characters.forEach(character => {
@@ -849,17 +854,16 @@ function jump(character) {
     }
 }
 
+// ALTERAÇÃO 2: Lógica de tiro e quebra de bloco simultânea
 function shoot(character) {
     if (character && !character.isEliminated) {
         const col = character.col;
         const row = Math.floor(character.y / BLOCK_SIZE);
 
-        if (row >= 0 && row + 1 < ROWS && col >= 0 && col < COLS && gameGrid[row + 1][col] !== 0) {
-            gameGrid[row + 1][col] = 0;
-            score++;
-            checkLineClears();
-        }
-        else if (character.shotsRemaining > 0) {
+        const spaceBelowIsBlocked = (row + 1 < ROWS && col >= 0 && col < COLS && gameGrid[row + 1][col] !== 0);
+
+        // Sempre atirar, se houver munição
+        if (character.shotsRemaining > 0) {
             character.shotsRemaining--;
             document.getElementById(`shots-remaining-${character.id}`).textContent = character.shotsRemaining;
 
@@ -872,6 +876,13 @@ function shoot(character) {
                 velocityY: -10
             };
             projectiles.push(projectile);
+        }
+
+        // Quebrar o bloco abaixo, se houver um
+        if (spaceBelowIsBlocked) {
+            gameGrid[row + 1][col] = 0;
+            score++;
+            checkLineClears();
         }
     }
 }
