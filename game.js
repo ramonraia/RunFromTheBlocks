@@ -35,7 +35,7 @@ const speedSelect = document.getElementById('speedSelect');
 const timeInput = document.getElementById('timeInput');
 const polyominoStartSelect = document.getElementById('polyominoStartSelect');
 const polyominoEndSelect = document.getElementById('polyominoEndSelect');
-const polyominoTimeInput = document = document.getElementById('polyominoTimeInput');
+const polyominoTimeInput = document.getElementById('polyominoTimeInput');
 const specialActionCheck = document.getElementById('specialActionCheck');
 const specialActionTimeInput = document.getElementById('specialActionTimeInput');
 const clearLinesCheck = document.getElementById('clearLinesCheck');
@@ -47,8 +47,7 @@ const backToMenuButton = document.getElementById('backToMenuButton');
 
 // Game state variables
 let gameGrid = createGrid();
-let fallingBlocks = []; // Agora um array para múltiplos blocos
-let currentBlock; // O bloco controlado pelo jogador, agora será um dos fallingBlocks
+let fallingBlocks = [];
 let characters = [];
 let projectiles = [];
 let gameOver = true;
@@ -62,13 +61,14 @@ let countdownIntervalId;
 let maxShotsPerRunner = 7;
 let shotRechargeTime = 30000;
 let clearLinesEnabled = true;
+let allRunnersEliminated = false;
 
 // State variables for fluid and simultaneous controls
 let keysPressed = {};
 let blockMoveCounter = 0;
-const blockMoveInterval = 100; // Intervalo de movimento do bloco
+const blockMoveInterval = 100;
 let runnerMoveCounter = 0;
-const runnerMoveInterval = 50; // Intervalo de movimento dos corredores
+const runnerMoveInterval = 50;
 let lastRechargeTime = 0;
 
 // State variables for menu navigation
@@ -81,12 +81,12 @@ let focusedPauseMenuElementIndex = 0;
 let currentPolyominoLevel = 5;
 let startingPolyominoLevel = 5;
 let endingPolyominoLevel = 5;
-let polyominoProgressionTime = 90; // 1.5 minutes in seconds
+let polyominoProgressionTime = 90;
 let polyominoLevelUpIntervalId;
 
 // New state variables for the Q action
 let isSpecialActionEnabled = false;
-let specialActionCooldownTime = 60000; // 60 seconds
+let specialActionCooldownTime = 60000;
 let lastSpecialActionTime = 0;
 let isSpecialActionReady = false;
 let specialActionActive = false;
@@ -173,7 +173,7 @@ function createGrid() {
     return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
 }
 
-function newBlock(isControlled = true) {
+function newBlock(controlledByPlayer = -1) {
     const levelShapes = shapes[currentPolyominoLevel - 1];
     const shapeIndex = Math.floor(Math.random() * levelShapes.length);
     const shape = JSON.parse(JSON.stringify(levelShapes[shapeIndex]));
@@ -185,19 +185,12 @@ function newBlock(isControlled = true) {
         x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2),
         y: -shape.length,
         isFalling: true,
-        isControlled: isControlled, // Novo atributo para verificar se o bloco é controlável
+        controlledByPlayer: controlledByPlayer,
         dropCounter: 0,
         dropInterval: dropInterval
     };
-
-    if (isControlled) {
-        fallingBlocks.push(newBlock);
-        return newBlock;
-    } else {
-        // Bloco não controlado (para jogadores eliminados)
-        fallingBlocks.push(newBlock);
-        return newBlock;
-    }
+    fallingBlocks.push(newBlock);
+    return newBlock;
 }
 
 function draw() {
@@ -243,7 +236,7 @@ function draw() {
 }
 
 function checkBlockCollision(block, offsetX = 0, offsetY = 0) {
-    // Check collision with the game grid
+    // Check collision with the game grid (solidified blocks)
     for (let r = 0; r < block.shape.length; r++) {
         for (let c = 0; c < block.shape[r].length; c++) {
             if (block.shape[r][c] !== 0) {
@@ -251,31 +244,6 @@ function checkBlockCollision(block, offsetX = 0, offsetY = 0) {
                 const newY = block.y + r + offsetY;
                 if (newX < 0 || newX >= COLS || newY >= ROWS || (newY >= 0 && gameGrid[newY][newX] !== 0)) {
                     return true;
-                }
-            }
-        }
-    }
-
-    // Check collision with other falling blocks
-    for (const otherBlock of fallingBlocks) {
-        if (otherBlock !== block && otherBlock.isFalling) {
-            for (let r = 0; r < otherBlock.shape.length; r++) {
-                for (let c = 0; c < otherBlock.shape[r].length; c++) {
-                    if (otherBlock.shape[r][c] !== 0) {
-                        for (let br = 0; br < block.shape.length; br++) {
-                            for (let bc = 0; bc < block.shape[br].length; bc++) {
-                                if (block.shape[br][bc] !== 0) {
-                                    const blockPieceX = block.x + bc + offsetX;
-                                    const blockPieceY = block.y + br + offsetY;
-                                    const otherBlockPieceX = otherBlock.x + c;
-                                    const otherBlockPieceY = otherBlock.y + r;
-                                    if (blockPieceX === otherBlockPieceX && blockPieceY === otherBlockPieceY) {
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -320,13 +288,11 @@ function checkLandingCollision(character) {
         }
     });
 
-    // New logic: Clamp character's Y position at the top of the canvas
     if (character.y < 0) {
         character.y = 0;
         character.velocityY = 0;
     }
     
-    // Original logic for the bottom of the canvas
     if (character.y + character.height >= canvas.height) {
         character.y = canvas.height - character.height;
         character.isStanding = true;
@@ -384,7 +350,7 @@ function checkCharacterHorizontalCollision(character, dir) {
                         }
                     }
                 }
-                if (isBlocked) break;
+                if (isBlocked) return;
             }
         }
     });
@@ -427,14 +393,10 @@ function checkCrushCollision(block, offsetX = 0, offsetY = 0) {
 }
 
 function checkAndPushRunners(block, dir) {
-    // Step 1: Check if the block can move to the new position first.
     if (checkBlockCollision(block, dir, 0)) {
-        // If the block can't move, it can't push or crush anyone.
         return false;
     }
 
-    // Step 2: Now that we know the block can move, check for runner interactions.
-    let blockMoved = true;
     for (const character of characters) {
         if (character.isEliminated) continue;
 
@@ -443,7 +405,6 @@ function checkAndPushRunners(block, dir) {
         const nextCharCol = charCol + dir;
         const isBlockedByGrid = nextCharCol < 0 || nextCharCol >= COLS || (gameGrid[charRow] && gameGrid[charRow][nextCharCol] !== 0);
 
-        // Find the block's solid piece that is adjacent to the runner
         let pushingBlockPiece = null;
         for (let r = 0; r < block.shape.length; r++) {
             for (let c = 0; c < block.shape[r].length; c++) {
@@ -482,9 +443,7 @@ function checkAndPushRunners(block, dir) {
         }
     }
 
-    // Finally, move the block now that all runner interactions for the move have been processed.
     block.x += dir;
-    return blockMoved;
 }
 
 function checkLineClears() {
@@ -518,6 +477,18 @@ function checkLineClears() {
 function solidifyBlock(block) {
     const isBlockEmpty = block.shape.flat().every(cell => cell === 0);
     if (isBlockEmpty) {
+        const index = fallingBlocks.indexOf(block);
+        if (index > -1) {
+            fallingBlocks.splice(index, 1);
+        }
+        if (block.controlledByPlayer !== -1) {
+            const runner = characters[block.controlledByPlayer];
+            if (runner && runner.isEliminated) {
+                runner.block = newBlock(block.controlledByPlayer);
+            }
+        } else {
+             newBlock();
+        }
         return;
     }
 
@@ -555,16 +526,20 @@ function solidifyBlock(block) {
             }
         }
     }
+    
     // Remove o bloco do array
     const index = fallingBlocks.indexOf(block);
     if (index > -1) {
         fallingBlocks.splice(index, 1);
     }
-
-    // Se não houver mais blocos controlados, cria um novo
-    const controlledBlocks = fallingBlocks.filter(b => b.isControlled);
-    if (controlledBlocks.length === 0) {
-        currentBlock = newBlock();
+    
+    if (block.controlledByPlayer !== -1) {
+        const runner = characters[block.controlledByPlayer];
+        if (runner && runner.isEliminated) {
+            runner.block = newBlock(block.controlledByPlayer);
+        }
+    } else {
+        newBlock();
     }
     
     checkLineClears();
@@ -618,12 +593,10 @@ function processSpecialAction(deltaTime) {
             for (let c = 0; c < COLS; c++) {
                 if (gameGrid[r][c] !== 0) {
                     let targetRow = r;
-                    // Find the lowest empty space in the new grid
                     while (targetRow + 1 < ROWS && nextGrid[targetRow + 1][c] === 0) {
                         targetRow++;
                     }
 
-                    // Check for crush collision before moving the block
                     for (const character of characters) {
                         if (!character.isEliminated && character.col === c && Math.floor(character.y / BLOCK_SIZE) === r + 1) {
                             eliminateRunner(character);
@@ -631,11 +604,9 @@ function processSpecialAction(deltaTime) {
                     }
 
                     if (targetRow > r) {
-                        // Move the block down one step
                         nextGrid[r + 1][c] = gameGrid[r][c];
                         blocksStillFalling = true;
                     } else {
-                        // The block can't move, so it stays
                         nextGrid[r][c] = gameGrid[r][c];
                     }
                 }
@@ -652,7 +623,6 @@ function processSpecialAction(deltaTime) {
         }
     }
 }
-
 
 function showCountdown(seconds, callback) {
     countdownMessageElement.style.display = 'flex';
@@ -681,7 +651,6 @@ function showPolyominoLevelUpMessage() {
 }
 
 let lastTime = 0;
-let dropCounter = 0;
 
 function gameLoop(time = 0) {
     if (gameOver || isPaused) {
@@ -719,21 +688,31 @@ function gameLoop(time = 0) {
     
     blockMoveCounter += deltaTime;
     if (blockMoveCounter > blockMoveInterval) {
-        const controlledBlocks = fallingBlocks.filter(b => b.isControlled);
-        if (controlledBlocks[0]) {
-            if (keysPressed['a'] || keysPressed['A']) { move(controlledBlocks[0], -1); }
-            if (keysPressed['d'] || keysPressed['D']) { move(controlledBlocks[0], 1); }
-            if (keysPressed['s'] || keysPressed['S']) { softDrop(controlledBlocks[0]); }
+        // Find the controlled blocks for each player
+        const mainBlock = fallingBlocks.find(b => b.controlledByPlayer === -1);
+        const runner1Block = characters[0] && characters[0].block ? characters[0].block : null;
+        const runner2Block = characters[1] && characters[1].block ? characters[1].block : null;
+        const runner3Block = characters[2] && characters[2].block ? characters[2].block : null;
+        
+        if (mainBlock) {
+            if (keysPressed['a'] || keysPressed['A']) { move(mainBlock, -1); }
+            if (keysPressed['d'] || keysPressed['D']) { move(mainBlock, 1); }
+            if (keysPressed['s'] || keysPressed['S']) { softDrop(mainBlock); }
         }
-        if (controlledBlocks[1]) {
-            if (keysPressed['f'] || keysPressed['F']) { move(controlledBlocks[1], -1); }
-            if (keysPressed['h'] || keysPressed['H']) { move(controlledBlocks[1], 1); }
-            if (keysPressed['g'] || keysPressed['G']) { softDrop(controlledBlocks[1]); }
+        if (runner1Block) {
+            if (keysPressed['ArrowLeft']) { move(runner1Block, -1); }
+            if (keysPressed['ArrowRight']) { move(runner1Block, 1); }
+            if (keysPressed['ArrowDown']) { softDrop(runner1Block); }
         }
-        if (controlledBlocks[2]) {
-            if (keysPressed['j'] || keysPressed['J']) { move(controlledBlocks[2], -1); }
-            if (keysPressed['l'] || keysPressed['L']) { move(controlledBlocks[2], 1); }
-            if (keysPressed['k'] || keysPressed['K']) { softDrop(controlledBlocks[2]); }
+        if (runner2Block) {
+            if (keysPressed['f'] || keysPressed['F']) { move(runner2Block, -1); }
+            if (keysPressed['h'] || keysPressed['H']) { move(runner2Block, 1); }
+            if (keysPressed['g'] || keysPressed['G']) { softDrop(runner2Block); }
+        }
+        if (runner3Block) {
+            if (keysPressed['j'] || keysPressed['J']) { move(runner3Block, -1); }
+            if (keysPressed['l'] || keysPressed['L']) { move(runner3Block, 1); }
+            if (keysPressed['k'] || keysPressed['K']) { softDrop(runner3Block); }
         }
         blockMoveCounter = 0;
     }
@@ -761,7 +740,6 @@ function gameLoop(time = 0) {
         character.velocityY += character.gravity;
         character.y += character.velocityY;
 
-        // NEW: Check for collision with the falling block's bottom while jumping
         fallingBlocks.forEach(block => {
             if (block && block.isFalling && character.velocityY < 0) {
                 const charHeadY = character.y;
@@ -773,7 +751,6 @@ function gameLoop(time = 0) {
                             const blockPieceX = (block.x + c) * BLOCK_SIZE;
                             const blockPieceY = (block.y + r) * BLOCK_SIZE;
 
-                            // Check if the character's head is inside the falling block piece
                             if (charHeadY <= blockPieceY + BLOCK_SIZE &&
                                 charHeadY >= blockPieceY &&
                                 character.x < blockPieceX + BLOCK_SIZE &&
@@ -790,7 +767,6 @@ function gameLoop(time = 0) {
         
         checkLandingCollision(character);
 
-        // Runner is eliminated if they fall off the bottom of the screen.
         if (character.y > canvas.height) {
             eliminateRunner(character);
         }
@@ -824,6 +800,14 @@ function gameLoop(time = 0) {
                         const blockIndex = fallingBlocks.indexOf(block);
                         if (blockIndex > -1) {
                             fallingBlocks.splice(blockIndex, 1);
+                        }
+                        if (block.controlledByPlayer !== -1) {
+                            const runner = characters[block.controlledByPlayer];
+                            if (runner && runner.isEliminated) {
+                                runner.block = newBlock(block.controlledByPlayer);
+                            }
+                        } else {
+                            newBlock();
                         }
                     }
                     return;
@@ -879,7 +863,7 @@ function gameLoop(time = 0) {
 }
 
 function rotate(block) {
-    if (!block) return;
+    if (!block || !block.isFalling) return;
     const rotatedShape = rotateMatrix(block.shape);
     const tempBlock = { ...block, shape: rotatedShape };
 
@@ -903,7 +887,7 @@ function rotateMatrix(matrix) {
 }
 
 function move(block, dir) {
-    if (!block || !block.isControlled) return;
+    if (!block) return;
     checkAndPushRunners(block, dir);
 }
 
@@ -938,7 +922,6 @@ function jump(character) {
     }
 }
 
-// Lógica de tiro e quebra de bloco simultânea
 function shoot(character) {
     if (character && !character.isEliminated) {
         const col = character.col;
@@ -946,7 +929,6 @@ function shoot(character) {
 
         const spaceBelowIsBlocked = (row + 1 < ROWS && col >= 0 && col < COLS && gameGrid[row + 1][col] !== 0);
 
-        // Sempre atirar, se houver munição
         if (character.shotsRemaining > 0) {
             character.shotsRemaining--;
             document.getElementById(`shots-remaining-${character.id}`).textContent = character.shotsRemaining;
@@ -962,7 +944,6 @@ function shoot(character) {
             projectiles.push(projectile);
         }
 
-        // Quebrar o bloco abaixo, se houver um
         if (spaceBelowIsBlocked) {
             gameGrid[row + 1][col] = 0;
             score++;
@@ -983,6 +964,8 @@ function rechargeShots(character) {
 }
 
 function eliminateRunner(character) {
+    if (character.isEliminated) return;
+    
     character.isEliminated = true;
     const statusElement = document.getElementById(`runner-status-${character.id}`);
     if (statusElement) {
@@ -991,16 +974,12 @@ function eliminateRunner(character) {
         statusElement.innerHTML = `<h4>Runner ${character.id + 1}</h4><p class="text-red-300">Eliminated!</p>`;
     }
     
-    // Adiciona um novo bloco para o jogador eliminado controlar
-    const newBlockForPlayer = newBlock(true); // O novo bloco é controlado
+    characters[character.id].block = newBlock(character.id);
     
-    // Associa o bloco ao jogador eliminado
-    character.block = newBlockForPlayer;
-
     const activeRunners = characters.filter(c => !c.isEliminated).length;
     if (activeRunners === 0) {
-        // Agora o jogo só termina quando não houver mais blocos controlados
-        // e o último bloco solidificar
+        endGame("The Block Controller wins! All runners were eliminated.");
+        return;
     }
 }
 
@@ -1169,7 +1148,8 @@ function startGame() {
     score = 0;
     projectiles = [];
     characters = [];
-    fallingBlocks = []; // Limpa o array de blocos caindo
+    fallingBlocks = [];
+    allRunnersEliminated = false;
     
     specialActionActive = false;
     isSpecialActionReady = false;
@@ -1185,12 +1165,13 @@ function startGame() {
             color: runnerColors[i],
             isStanding: false, velocityY: 0, gravity: 0.5, jumpStrength: 10,
             shotsRemaining: maxShotsPerRunner,
-            isEliminated: false
+            isEliminated: false,
+            block: null
         });
     }
 
-    // Cria o primeiro bloco controlado por padrão
-    currentBlock = newBlock();
+    // Cria o primeiro bloco para o controlador original
+    newBlock();
 
     playerScoreDisplay.querySelector('span:last-child').textContent = score;
     linesRemainingDisplay.querySelector('span:last-child').textContent = linesRemaining;
@@ -1202,7 +1183,7 @@ function startGame() {
     startCountdown();
     startPolyominoProgression();
     lastRechargeTime = Date.now();
-    lastSpecialActionTime = Date.now(); // Start cooldown at the beginning of the game
+    lastSpecialActionTime = Date.now();
     isSpecialActionReady = false;
     specialActionProgress.classList.remove('ready');
     specialActionContainer.style.display = isSpecialActionEnabled ? 'block' : 'none';
@@ -1287,23 +1268,38 @@ window.addEventListener('keydown', e => {
     keysPressed[e.key] = true;
 
     if (!isPaused && !gameOver) {
-        if (e.key === 'w' || e.key === 'W') {
-            const block = fallingBlocks.find(b => b.isControlled);
-            if (block && !specialActionActive) {
-                rotate(block);
+        // Bloco do controlador original
+        const mainBlock = fallingBlocks.find(b => b.controlledByPlayer === -1);
+        if (mainBlock && (e.key === 'w' || e.key === 'W')) { rotate(mainBlock); }
+        if (isSpecialActionEnabled && (e.key === 'q' || e.key === 'Q')) { startSpecialAction(); }
+
+        // Ações dos corredores
+        characters.forEach(character => {
+            if (!character.isEliminated) {
+                if (character.id === 0) { // Corredor 1 (setas)
+                    if (e.key === 'ArrowUp') { jump(character); }
+                    if (e.key === 'ArrowDown') { shoot(character); }
+                } else if (character.id === 1) { // Corredor 2 (tfgh)
+                    if (e.key === 't' || e.key === 'T') { jump(character); }
+                    if (e.key === 'g' || e.key === 'G') { shoot(character); }
+                } else if (character.id === 2) { // Corredor 3 (ijkl)
+                    if (e.key === 'i' || e.key === 'I') { jump(character); }
+                    if (e.key === 'k' || e.key === 'K') { shoot(character); }
+                }
+            } else {
+                // Bloco do corredor eliminado
+                const eliminatedBlock = character.block;
+                if (eliminatedBlock) {
+                     if (character.id === 0) { // Corredor 1 (ArrowUp)
+                        if (e.key === 'ArrowUp') { rotate(eliminatedBlock); }
+                    } else if (character.id === 1) { // Corredor 2 (t)
+                        if (e.key === 't' || e.key === 'T') { rotate(eliminatedBlock); }
+                    } else if (character.id === 2) { // Corredor 3 (i)
+                        if (e.key === 'i' || e.key === 'I') { rotate(eliminatedBlock); }
+                    }
+                }
             }
-        }
-        if (isSpecialActionEnabled && (e.key === 'q' || e.key === 'Q')) {
-            startSpecialAction();
-        }
-        if (characters[0] && (e.key === 'ArrowUp')) { jump(characters[0]); }
-        if (characters[0] && (e.key === 'ArrowDown')) { shoot(characters[0]); }
-
-        if (characters[1] && (e.key === 't' || e.key === 'T')) { jump(characters[1]); }
-        if (characters[1] && (e.key === 'y' || e.key === 'Y')) { shoot(characters[1]); }
-
-        if (characters[2] && (e.key === 'i' || e.key === 'I')) { jump(characters[2]); }
-        if (characters[2] && (e.key === 'o' || e.key === 'O')) { shoot(characters[2]); }
+        });
     }
 });
 
@@ -1324,6 +1320,7 @@ window.addEventListener('load', () => {
     polyominoEndSelect.value = 7;
     polyominoTimeInput.value = 1;
     specialActionCheck.checked = true;
+    runnerCountSelect.value = 1;
 
     showMenu();
 });
