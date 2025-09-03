@@ -35,7 +35,7 @@ const speedSelect = document.getElementById('speedSelect');
 const timeInput = document.getElementById('timeInput');
 const polyominoStartSelect = document.getElementById('polyominoStartSelect');
 const polyominoEndSelect = document.getElementById('polyominoEndSelect');
-const polyominoTimeInput = document.getElementById('polyominoTimeInput');
+const polyominoTimeInput = document = document.getElementById('polyominoTimeInput');
 const specialActionCheck = document.getElementById('specialActionCheck');
 const specialActionTimeInput = document.getElementById('specialActionTimeInput');
 const clearLinesCheck = document.getElementById('clearLinesCheck');
@@ -47,7 +47,8 @@ const backToMenuButton = document.getElementById('backToMenuButton');
 
 // Game state variables
 let gameGrid = createGrid();
-let currentBlock;
+let fallingBlocks = []; // Agora um array para múltiplos blocos
+let currentBlock; // O bloco controlado pelo jogador, agora será um dos fallingBlocks
 let characters = [];
 let projectiles = [];
 let gameOver = true;
@@ -92,7 +93,6 @@ let specialActionActive = false;
 let specialActionDropInterval = 50;
 let specialActionDropCounter = 0;
 let compactedGrid = [];
-
 
 // Updated colors array
 const colors = [
@@ -173,19 +173,31 @@ function createGrid() {
     return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
 }
 
-function newBlock() {
+function newBlock(isControlled = true) {
     const levelShapes = shapes[currentPolyominoLevel - 1];
     const shapeIndex = Math.floor(Math.random() * levelShapes.length);
     const shape = JSON.parse(JSON.stringify(levelShapes[shapeIndex]));
     const colorIndex = (currentPolyominoLevel - 1 + shapeIndex) % colors.length;
     const color = colors[colorIndex];
-    currentBlock = {
+    const newBlock = {
         shape: shape,
         color: color,
         x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2),
         y: -shape.length,
-        isFalling: true
+        isFalling: true,
+        isControlled: isControlled, // Novo atributo para verificar se o bloco é controlável
+        dropCounter: 0,
+        dropInterval: dropInterval
     };
+
+    if (isControlled) {
+        fallingBlocks.push(newBlock);
+        return newBlock;
+    } else {
+        // Bloco não controlado (para jogadores eliminados)
+        fallingBlocks.push(newBlock);
+        return newBlock;
+    }
 }
 
 function draw() {
@@ -202,18 +214,20 @@ function draw() {
         }
     }
 
-    if (currentBlock && currentBlock.isFalling) {
-        for (let r = 0; r < currentBlock.shape.length; r++) {
-            for (let c = 0; c < currentBlock.shape[r].length; c++) {
-                if (currentBlock.shape[r][c] !== 0) {
-                    ctx.fillStyle = currentBlock.color;
-                    ctx.fillRect((currentBlock.x + c) * BLOCK_SIZE, (currentBlock.y + r) * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-                    ctx.strokeStyle = '#2d3748';
-                    ctx.strokeRect((currentBlock.x + c) * BLOCK_SIZE, (currentBlock.y + r) * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+    fallingBlocks.forEach(block => {
+        if (block && block.isFalling) {
+            for (let r = 0; r < block.shape.length; r++) {
+                for (let c = 0; c < block.shape[r].length; c++) {
+                    if (block.shape[r][c] !== 0) {
+                        ctx.fillStyle = block.color;
+                        ctx.fillRect((block.x + c) * BLOCK_SIZE, (block.y + r) * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+                        ctx.strokeStyle = '#2d3748';
+                        ctx.strokeRect((block.x + c) * BLOCK_SIZE, (block.y + r) * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+                    }
                 }
             }
         }
-    }
+    });
 
     characters.forEach(character => {
         if (!character.isEliminated) {
@@ -229,6 +243,7 @@ function draw() {
 }
 
 function checkBlockCollision(block, offsetX = 0, offsetY = 0) {
+    // Check collision with the game grid
     for (let r = 0; r < block.shape.length; r++) {
         for (let c = 0; c < block.shape[r].length; c++) {
             if (block.shape[r][c] !== 0) {
@@ -236,6 +251,31 @@ function checkBlockCollision(block, offsetX = 0, offsetY = 0) {
                 const newY = block.y + r + offsetY;
                 if (newX < 0 || newX >= COLS || newY >= ROWS || (newY >= 0 && gameGrid[newY][newX] !== 0)) {
                     return true;
+                }
+            }
+        }
+    }
+
+    // Check collision with other falling blocks
+    for (const otherBlock of fallingBlocks) {
+        if (otherBlock !== block && otherBlock.isFalling) {
+            for (let r = 0; r < otherBlock.shape.length; r++) {
+                for (let c = 0; c < otherBlock.shape[r].length; c++) {
+                    if (otherBlock.shape[r][c] !== 0) {
+                        for (let br = 0; br < block.shape.length; br++) {
+                            for (let bc = 0; bc < block.shape[br].length; bc++) {
+                                if (block.shape[br][bc] !== 0) {
+                                    const blockPieceX = block.x + bc + offsetX;
+                                    const blockPieceY = block.y + br + offsetY;
+                                    const otherBlockPieceX = otherBlock.x + c;
+                                    const otherBlockPieceY = otherBlock.y + r;
+                                    if (blockPieceX === otherBlockPieceX && blockPieceY === otherBlockPieceY) {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -258,25 +298,27 @@ function checkLandingCollision(character) {
         character.velocityY = 0;
     }
 
-    if (currentBlock && currentBlock.isFalling) {
-        for (let r = 0; r < currentBlock.shape.length; r++) {
-            for (let c = 0; c < currentBlock.shape[r].length; c++) {
-                if (currentBlock.shape[r][c] !== 0) {
-                    const blockTopY = (currentBlock.y + r) * BLOCK_SIZE;
-                    const blockLeftX = (currentBlock.x + c) * BLOCK_SIZE;
-                    const blockRightX = blockLeftX + BLOCK_SIZE;
+    fallingBlocks.forEach(block => {
+        if (block && block.isFalling) {
+            for (let r = 0; r < block.shape.length; r++) {
+                for (let c = 0; c < block.shape[r].length; c++) {
+                    if (block.shape[r][c] !== 0) {
+                        const blockTopY = (block.y + r) * BLOCK_SIZE;
+                        const blockLeftX = (block.x + c) * BLOCK_SIZE;
+                        const blockRightX = blockLeftX + BLOCK_SIZE;
 
-                    if (nextY + character.height >= blockTopY && nextY + character.height < blockTopY + character.velocityY + 1) {
-                        if (character.x < blockRightX && character.x + character.width > blockLeftX) {
-                            character.y = blockTopY - character.height;
-                            character.isStanding = true;
-                            character.velocityY = 0;
+                        if (nextY + character.height >= blockTopY && nextY + character.height < blockTopY + character.velocityY + 1) {
+                            if (character.x < blockRightX && character.x + character.width > blockLeftX) {
+                                character.y = blockTopY - character.height;
+                                character.isStanding = true;
+                                character.velocityY = 0;
+                            }
                         }
                     }
                 }
             }
         }
-    }
+    });
 
     // New logic: Clamp character's Y position at the top of the canvas
     if (character.y < 0) {
@@ -321,29 +363,33 @@ function checkCharacterHorizontalCollision(character, dir) {
         return true;
     }
 
-    if (currentBlock && currentBlock.isFalling) {
-        const blockGridX = Math.floor(currentBlock.x);
-        const blockGridY = Math.floor(currentBlock.y);
+    fallingBlocks.forEach(block => {
+        if (block && block.isFalling) {
+            const blockGridX = Math.floor(block.x);
+            const blockGridY = Math.floor(block.y);
 
-        for (let r = 0; r < currentBlock.shape.length; r++) {
-            for (let c = 0; c < currentBlock.shape[r].length; c++) {
-                if (currentBlock.shape[r][c] !== 0) {
-                    const blockPieceX = blockGridX + c;
-                    const blockPieceY = blockGridY + r;
+            for (let r = 0; r < block.shape.length; r++) {
+                for (let c = 0; c < block.shape[r].length; c++) {
+                    if (block.shape[r][c] !== 0) {
+                        const blockPieceX = blockGridX + c;
+                        const blockPieceY = blockGridY + r;
 
-                    if (nextCol === blockPieceX) {
-                        for (let charRow = charTopRow; charRow <= charBottomRow; charRow++) {
-                            if (charRow === blockPieceY) {
-                                return true;
+                        if (nextCol === blockPieceX) {
+                            for (let charRow = charTopRow; charRow <= charBottomRow; charRow++) {
+                                if (charRow === blockPieceY) {
+                                    isBlocked = true;
+                                    break;
+                                }
                             }
                         }
                     }
                 }
+                if (isBlocked) break;
             }
         }
-    }
+    });
 
-    return false;
+    return isBlocked;
 }
 
 function checkCrushCollision(block, offsetX = 0, offsetY = 0) {
@@ -469,18 +515,17 @@ function checkLineClears() {
     }
 }
 
-function solidifyBlock() {
-    const isBlockEmpty = currentBlock.shape.flat().every(cell => cell === 0);
+function solidifyBlock(block) {
+    const isBlockEmpty = block.shape.flat().every(cell => cell === 0);
     if (isBlockEmpty) {
-        newBlock();
         return;
     }
 
-    for (let r = 0; r < currentBlock.shape.length; r++) {
-        for (let c = 0; c < currentBlock.shape[r].length; c++) {
-            if (currentBlock.shape[r][c] !== 0) {
-                const newX = currentBlock.x + c;
-                const newY = currentBlock.y + r;
+    for (let r = 0; r < block.shape.length; r++) {
+        for (let c = 0; c < block.shape[r].length; c++) {
+            if (block.shape[r][c] !== 0) {
+                const newX = block.x + c;
+                const newY = block.y + r;
 
                 for (const character of characters) {
                     if (character.isEliminated) continue;
@@ -496,13 +541,13 @@ function solidifyBlock() {
         }
     }
 
-    for (let r = 0; r < currentBlock.shape.length; r++) {
-        for (let c = 0; c < currentBlock.shape[r].length; c++) {
-            if (currentBlock.shape[r][c] !== 0) {
-                const newY = currentBlock.y + r;
-                const newX = currentBlock.x + c;
+    for (let r = 0; r < block.shape.length; r++) {
+        for (let c = 0; c < block.shape[r].length; c++) {
+            if (block.shape[r][c] !== 0) {
+                const newY = block.y + r;
+                const newX = block.x + c;
                 if (newY >= 0 && newY < ROWS && newX >= 0 && newX < COLS) {
-                    gameGrid[newY][newX] = currentBlock.color;
+                    gameGrid[newY][newX] = block.color;
                 } else {
                     endGame("The Runners win! The block went out of bounds.");
                     return;
@@ -510,7 +555,18 @@ function solidifyBlock() {
             }
         }
     }
-    newBlock();
+    // Remove o bloco do array
+    const index = fallingBlocks.indexOf(block);
+    if (index > -1) {
+        fallingBlocks.splice(index, 1);
+    }
+
+    // Se não houver mais blocos controlados, cria um novo
+    const controlledBlocks = fallingBlocks.filter(b => b.isControlled);
+    if (controlledBlocks.length === 0) {
+        currentBlock = newBlock();
+    }
+    
     checkLineClears();
 }
 
@@ -543,7 +599,7 @@ function startSpecialAction() {
         }
         
         specialActionDropCounter = 0;
-        currentBlock = null; 
+        fallingBlocks.forEach(b => b.isFalling = false);
     });
 }
 
@@ -591,7 +647,7 @@ function processSpecialAction(deltaTime) {
         if (!blocksStillFalling) {
             specialActionActive = false;
             checkLineClears();
-            newBlock();
+            fallingBlocks.forEach(b => b.isFalling = true);
             return;
         }
     }
@@ -641,35 +697,44 @@ function gameLoop(time = 0) {
     if (specialActionActive) {
         processSpecialAction(deltaTime);
     } else {
-        dropCounter += deltaTime;
-        if (dropCounter > dropInterval) {
-            if (!currentBlock || currentBlock.shape.flat().every(cell => cell === 0)) {
-                newBlock();
-            }
-
-            if (currentBlock) {
-                if (checkCrushCollision(currentBlock, 0, 1)) {
+        fallingBlocks.forEach(block => {
+            block.dropCounter += deltaTime;
+            if (block.dropCounter > block.dropInterval) {
+                if (checkCrushCollision(block, 0, 1)) {
                     let activeRunners = characters.filter(c => !c.isEliminated).length;
                     if (activeRunners === 0) {
                         endGame("The Block Controller wins! All runners were crushed.");
                         return;
                     }
                 }
-                if (!checkBlockCollision(currentBlock, 0, 1)) {
-                    currentBlock.y++;
+                if (!checkBlockCollision(block, 0, 1)) {
+                    block.y++;
                 } else {
-                    solidifyBlock();
+                    solidifyBlock(block);
                 }
+                block.dropCounter = 0;
             }
-            dropCounter = 0;
-        }
+        });
     }
     
     blockMoveCounter += deltaTime;
     if (blockMoveCounter > blockMoveInterval) {
-        if (keysPressed['a'] || keysPressed['A']) { move(currentBlock, -1); }
-        if (keysPressed['d'] || keysPressed['D']) { move(currentBlock, 1); }
-        if (keysPressed['s'] || keysPressed['S']) { softDrop(); }
+        const controlledBlocks = fallingBlocks.filter(b => b.isControlled);
+        if (controlledBlocks[0]) {
+            if (keysPressed['a'] || keysPressed['A']) { move(controlledBlocks[0], -1); }
+            if (keysPressed['d'] || keysPressed['D']) { move(controlledBlocks[0], 1); }
+            if (keysPressed['s'] || keysPressed['S']) { softDrop(controlledBlocks[0]); }
+        }
+        if (controlledBlocks[1]) {
+            if (keysPressed['f'] || keysPressed['F']) { move(controlledBlocks[1], -1); }
+            if (keysPressed['h'] || keysPressed['H']) { move(controlledBlocks[1], 1); }
+            if (keysPressed['g'] || keysPressed['G']) { softDrop(controlledBlocks[1]); }
+        }
+        if (controlledBlocks[2]) {
+            if (keysPressed['j'] || keysPressed['J']) { move(controlledBlocks[2], -1); }
+            if (keysPressed['l'] || keysPressed['L']) { move(controlledBlocks[2], 1); }
+            if (keysPressed['k'] || keysPressed['K']) { softDrop(controlledBlocks[2]); }
+        }
         blockMoveCounter = 0;
     }
 
@@ -697,29 +762,31 @@ function gameLoop(time = 0) {
         character.y += character.velocityY;
 
         // NEW: Check for collision with the falling block's bottom while jumping
-        if (currentBlock && currentBlock.isFalling && character.velocityY < 0) {
-            const charHeadY = character.y;
-            const charCol = character.col;
+        fallingBlocks.forEach(block => {
+            if (block && block.isFalling && character.velocityY < 0) {
+                const charHeadY = character.y;
+                const charCol = character.col;
 
-            for (let r = 0; r < currentBlock.shape.length; r++) {
-                for (let c = 0; c < currentBlock.shape[r].length; c++) {
-                    if (currentBlock.shape[r][c] !== 0) {
-                        const blockPieceX = (currentBlock.x + c) * BLOCK_SIZE;
-                        const blockPieceY = (currentBlock.y + r) * BLOCK_SIZE;
+                for (let r = 0; r < block.shape.length; r++) {
+                    for (let c = 0; c < block.shape[r].length; c++) {
+                        if (block.shape[r][c] !== 0) {
+                            const blockPieceX = (block.x + c) * BLOCK_SIZE;
+                            const blockPieceY = (block.y + r) * BLOCK_SIZE;
 
-                        // Check if the character's head is inside the falling block piece
-                        if (charHeadY <= blockPieceY + BLOCK_SIZE &&
-                            charHeadY >= blockPieceY &&
-                            character.x < blockPieceX + BLOCK_SIZE &&
-                            character.x + character.width > blockPieceX) {
-                            
-                            eliminateRunner(character);
-                            return; 
+                            // Check if the character's head is inside the falling block piece
+                            if (charHeadY <= blockPieceY + BLOCK_SIZE &&
+                                charHeadY >= blockPieceY &&
+                                character.x < blockPieceX + BLOCK_SIZE &&
+                                character.x + character.width > blockPieceX) {
+                                
+                                eliminateRunner(character);
+                                return; 
+                            }
                         }
                     }
                 }
             }
-        }
+        });
         
         checkLandingCollision(character);
 
@@ -735,27 +802,35 @@ function gameLoop(time = 0) {
         const pCol = Math.floor((p.x + p.width / 2) / BLOCK_SIZE);
         const pRow = Math.floor(p.y / BLOCK_SIZE);
 
-        if (currentBlock && currentBlock.isFalling) {
-            const blockGridX = Math.floor(currentBlock.x);
-            const blockGridY = Math.floor(currentBlock.y);
-            const relativeCol = pCol - blockGridX;
-            const relativeRow = pRow - blockGridY;
-
-            if (relativeCol >= 0 && relativeCol < currentBlock.shape[0].length &&
-                relativeRow >= 0 && relativeRow < currentBlock.shape.length &&
-                currentBlock.shape[relativeRow][relativeCol] !== 0) {
-
-                currentBlock.shape[relativeRow][relativeCol] = 0;
-                score++;
-                projectiles.splice(index, 1);
-
-                const isBlockEmpty = currentBlock.shape.flat().every(cell => cell === 0);
-                if (isBlockEmpty) {
-                    newBlock();
+        let hitBlock = false;
+        fallingBlocks.forEach(block => {
+            if (block && block.isFalling) {
+                const blockGridX = Math.floor(block.x);
+                const blockGridY = Math.floor(block.y);
+                const relativeCol = pCol - blockGridX;
+                const relativeRow = pRow - blockGridY;
+        
+                if (relativeCol >= 0 && relativeCol < block.shape[0].length &&
+                    relativeRow >= 0 && relativeRow < block.shape.length &&
+                    block.shape[relativeRow][relativeCol] !== 0) {
+        
+                    block.shape[relativeRow][relativeCol] = 0;
+                    score++;
+                    projectiles.splice(index, 1);
+                    hitBlock = true;
+                    
+                    const isBlockEmpty = block.shape.flat().every(cell => cell === 0);
+                    if (isBlockEmpty) {
+                        const blockIndex = fallingBlocks.indexOf(block);
+                        if (blockIndex > -1) {
+                            fallingBlocks.splice(blockIndex, 1);
+                        }
+                    }
+                    return;
                 }
-                return;
             }
-        }
+        });
+        if (hitBlock) return;
 
         if (pRow >= 0 && pRow < ROWS && pCol >= 0 && pCol < COLS && gameGrid[pRow][pCol] !== 0) {
             gameGrid[pRow][pCol] = 0;
@@ -803,7 +878,17 @@ function gameLoop(time = 0) {
     requestAnimationFrame(gameLoop);
 }
 
-function rotate(matrix) {
+function rotate(block) {
+    if (!block) return;
+    const rotatedShape = rotateMatrix(block.shape);
+    const tempBlock = { ...block, shape: rotatedShape };
+
+    if (!checkBlockCollision(tempBlock)) {
+        block.shape = rotatedShape;
+    }
+}
+
+function rotateMatrix(matrix) {
     const rows = matrix.length;
     const cols = matrix[0].length;
     const rotatedMatrix = Array.from({ length: cols }, () => Array(rows).fill(0));
@@ -818,7 +903,7 @@ function rotate(matrix) {
 }
 
 function move(block, dir) {
-    if (!block) return;
+    if (!block || !block.isControlled) return;
     checkAndPushRunners(block, dir);
 }
 
@@ -829,20 +914,19 @@ function moveCharacter(character, dir) {
     }
 }
 
-function softDrop() {
-    if (currentBlock) {
-        if (checkCrushCollision(currentBlock, 0, 1)) {
-            let activeRunners = characters.filter(c => !c.isEliminated).length;
-            if (activeRunners === 0) {
-                endGame("The Block Controller wins! All runners were crushed.");
-                return;
-            }
+function softDrop(block) {
+    if (!block) return;
+    if (checkCrushCollision(block, 0, 1)) {
+        let activeRunners = characters.filter(c => !c.isEliminated).length;
+        if (activeRunners === 0) {
+            endGame("The Block Controller wins! All runners were crushed.");
+            return;
         }
-        if (!checkBlockCollision(currentBlock, 0, 1)) {
-            currentBlock.y++;
-        } else {
-            solidifyBlock();
-        }
+    }
+    if (!checkBlockCollision(block, 0, 1)) {
+        block.y++;
+    } else {
+        solidifyBlock(block);
     }
 }
 
@@ -854,7 +938,7 @@ function jump(character) {
     }
 }
 
-// ALTERAÇÃO 2: Lógica de tiro e quebra de bloco simultânea
+// Lógica de tiro e quebra de bloco simultânea
 function shoot(character) {
     if (character && !character.isEliminated) {
         const col = character.col;
@@ -906,10 +990,17 @@ function eliminateRunner(character) {
         statusElement.classList.remove('bg-gray-700');
         statusElement.innerHTML = `<h4>Runner ${character.id + 1}</h4><p class="text-red-300">Eliminated!</p>`;
     }
+    
+    // Adiciona um novo bloco para o jogador eliminado controlar
+    const newBlockForPlayer = newBlock(true); // O novo bloco é controlado
+    
+    // Associa o bloco ao jogador eliminado
+    character.block = newBlockForPlayer;
 
     const activeRunners = characters.filter(c => !c.isEliminated).length;
     if (activeRunners === 0) {
-        endGame("The Block Controller wins! All runners were eliminated.");
+        // Agora o jogo só termina quando não houver mais blocos controlados
+        // e o último bloco solidificar
     }
 }
 
@@ -993,6 +1084,7 @@ function startProgressiveSpeed() {
     speedIntervalId = setInterval(() => {
         if (!isPaused && !gameOver) {
             dropInterval = Math.max(100, dropInterval * 0.7);
+            fallingBlocks.forEach(block => block.dropInterval = dropInterval);
         }
     }, 60000);
 }
@@ -1055,8 +1147,7 @@ function startGame() {
     const parsedRechargeTime = parseInt(rechargeTimeInput.value);
     const selectedSpeed = speedSelect.value;
     const parsedTime = parseInt(timeInput.value);
-
-    // Get new menu options
+    
     startingPolyominoLevel = parseInt(polyominoStartSelect.value);
     endingPolyominoLevel = parseInt(polyominoEndSelect.value);
     polyominoProgressionTime = parseFloat(polyominoTimeInput.value);
@@ -1078,6 +1169,7 @@ function startGame() {
     score = 0;
     projectiles = [];
     characters = [];
+    fallingBlocks = []; // Limpa o array de blocos caindo
     
     specialActionActive = false;
     isSpecialActionReady = false;
@@ -1097,13 +1189,15 @@ function startGame() {
         });
     }
 
+    // Cria o primeiro bloco controlado por padrão
+    currentBlock = newBlock();
+
     playerScoreDisplay.querySelector('span:last-child').textContent = score;
     linesRemainingDisplay.querySelector('span:last-child').textContent = linesRemaining;
     timerDisplay.querySelector('span:last-child').textContent = formatTime(gameTime);
 
     createRunnerStatusUI();
 
-    newBlock();
     startProgressiveSpeed();
     startCountdown();
     startPolyominoProgression();
@@ -1194,11 +1288,9 @@ window.addEventListener('keydown', e => {
 
     if (!isPaused && !gameOver) {
         if (e.key === 'w' || e.key === 'W') {
-            if (currentBlock && !specialActionActive) {
-                const rotatedBlock = rotate(currentBlock.shape);
-                if (!checkBlockCollision({ ...currentBlock, shape: rotatedBlock })) {
-                    currentBlock.shape = rotatedBlock;
-                }
+            const block = fallingBlocks.find(b => b.isControlled);
+            if (block && !specialActionActive) {
+                rotate(block);
             }
         }
         if (isSpecialActionEnabled && (e.key === 'q' || e.key === 'Q')) {
@@ -1208,10 +1300,10 @@ window.addEventListener('keydown', e => {
         if (characters[0] && (e.key === 'ArrowDown')) { shoot(characters[0]); }
 
         if (characters[1] && (e.key === 't' || e.key === 'T')) { jump(characters[1]); }
-        if (characters[1] && (e.key === 'g' || e.key === 'G')) { shoot(characters[1]); }
+        if (characters[1] && (e.key === 'y' || e.key === 'Y')) { shoot(characters[1]); }
 
         if (characters[2] && (e.key === 'i' || e.key === 'I')) { jump(characters[2]); }
-        if (characters[2] && (e.key === 'k' || e.key === 'K')) { shoot(characters[2]); }
+        if (characters[2] && (e.key === 'o' || e.key === 'O')) { shoot(characters[2]); }
     }
 });
 
@@ -1227,7 +1319,6 @@ backToMenuButton.addEventListener('click', () => {
 });
 
 window.addEventListener('load', () => {
-    // Set default menu values here
     linesInput.value = 70;
     polyominoStartSelect.value = 3;
     polyominoEndSelect.value = 7;
