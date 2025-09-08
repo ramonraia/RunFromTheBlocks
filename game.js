@@ -170,7 +170,7 @@ const shapes = [
         [[0, 1, 1], [1, 1, 0], [1, 0, 0], [1, 0, 0]],
         [[1, 1], [0, 1], [0, 1], [0, 1], [0, 1]],
         [[1, 0], [1, 0], [1, 1], [0, 1], [0, 1]],
-        [[1, 0], [1, 1], [1, 0], [0, 1], [0, 1]],
+        [[1, 0], [1, 1], [1, 0], [1, 0], [1, 0]],
         [[1, 0], [1, 0], [1, 0], [1, 1], [0, 1]],
         [[1, 1, 1], [0, 1, 0], [0, 1, 1]],
         [[1, 1, 0], [0, 1, 1], [0, 0, 1], [0, 0, 1]],
@@ -412,7 +412,9 @@ function checkCrushCollision(block, offsetX = 0, offsetY = 0) {
                     if (blockCol === charCol && blockRow === charTopRow) {
                         potentialCrushers.push(character);
                     } else if (blockCol === charCol && blockRow > charTopRow && blockRow <= charBottomRow) {
-                        eliminateRunner(character);
+                        const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
+                        
+                        eliminateRunner(character, playerWhoCausedIt);
                         return true;
                     }
                 }
@@ -471,7 +473,8 @@ function checkAndPushRunners(block, dir) {
             }
 
             if (isBlockedByGrid || isPushedIntoMovingBlock) {
-                eliminateRunner(character);
+                const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
+                eliminateRunner(character, playerWhoCausedIt);
             } else {
                 character.col = nextCharCol;
                 character.x = character.col * BLOCK_SIZE;
@@ -541,7 +544,10 @@ function solidifyBlock(block) {
                     const charRow = Math.floor(character.y / BLOCK_SIZE);
 
                     if (newX === charCol && newY === charRow) {
-                        eliminateRunner(character);
+                        const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
+                        
+                        // Chamada para a função que lida com a eliminação
+                        eliminateRunner(character, playerWhoCausedIt);
                     }
                 }
             }
@@ -569,9 +575,10 @@ function solidifyBlock(block) {
         fallingBlocks.splice(index, 1);
     }
     
+    // Corrigindo a lógica: Se o bloco pertencia a um corredor, ele precisa de um novo
     if (block.controlledByPlayer !== -1) {
         const runner = characters[block.controlledByPlayer];
-        if (runner && runner.isEliminated) {
+        if (runner) {
             runner.block = newBlock(block.controlledByPlayer);
         }
     } else {
@@ -773,9 +780,16 @@ function gameLoop(time = 0) {
     characters.forEach(character => {
         if (character.isEliminated) return;
 
+        // Lógica de ressurreição aprimorada: força a queda inicial
+        if (character.isRespawning) {
+            character.y = 0;
+            character.velocityY = 0;
+            character.isRespawning = false;
+        }
+
         character.velocityY += character.gravity;
         character.y += character.velocityY;
-
+        
         fallingBlocks.forEach(block => {
             if (block && block.isFalling && character.velocityY < 0) {
                 const charHeadY = character.y;
@@ -792,7 +806,8 @@ function gameLoop(time = 0) {
                                 character.x < blockPieceX + BLOCK_SIZE &&
                                 character.x + character.width > blockPieceX) {
                                 
-                                eliminateRunner(character);
+                                const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
+                                eliminateRunner(character, playerWhoCausedIt);
                                 return; 
                             }
                         }
@@ -999,23 +1014,69 @@ function rechargeShots(character) {
     }
 }
 
-function eliminateRunner(character) {
-    if (character.isEliminated) return;
-    
-    character.isEliminated = true;
-    const statusElement = document.getElementById(`runner-status-${character.id}`);
+function eliminateRunner(runnerToBeEliminated, eliminatedBy = null) {
+    if (runnerToBeEliminated.isEliminated) return;
+
+    // Lógica de eliminação padrão, executada para todos os casos
+    runnerToBeEliminated.isEliminated = true;
+    const statusElement = document.getElementById(`runner-status-${runnerToBeEliminated.id}`);
     if (statusElement) {
         statusElement.classList.add('bg-red-800');
         statusElement.classList.remove('bg-gray-700');
-        statusElement.innerHTML = `<h4>Runner ${character.id + 1}</h4><p class="text-red-300">Eliminated!</p>`;
+        statusElement.innerHTML = `<h4>Runner ${runnerToBeEliminated.id + 1}</h4><p class="text-red-300">Eliminated!</p>`;
     }
     
-    characters[character.id].block = newBlock(character.id);
+    // Desativa a colisão e a gravidade do personagem eliminado
+    runnerToBeEliminated.velocityY = 0;
+    // Remove o personagem visualmente do jogo
+    runnerToBeEliminated.x = -100;
+    runnerToBeEliminated.y = -100;
     
-    const activeRunners = characters.filter(c => !c.isEliminated).length;
-    if (activeRunners === 0) {
-        endGame("The Block Controller wins! All runners were eliminated.");
-        return;
+    // Adição para garantir que o bloco do corredor é nulo
+    runnerToBeEliminated.block = null;
+
+    // Lógica para lidar com os projéteis do jogador eliminado
+    projectiles = projectiles.filter(p => p.controlledByPlayer !== runnerToBeEliminated.id);
+
+    // Nova Lógica: Checa se a eliminação foi causada por um corredor já eliminado
+    // E ressuscitá-lo em troca.
+    if (eliminatedBy && eliminatedBy.isEliminated) {
+        eliminatedBy.isEliminated = false;
+        
+        // Remove o bloco que ele estava controlando
+        if (eliminatedBy.block) {
+            const index = fallingBlocks.indexOf(eliminatedBy.block);
+            if (index > -1) {
+                fallingBlocks.splice(index, 1);
+            }
+        }
+        eliminatedBy.block = null;
+
+        const eliminatedByStatusElement = document.getElementById(`runner-status-${eliminatedBy.id}`);
+        if (eliminatedByStatusElement) {
+            eliminatedByStatusElement.classList.remove('bg-red-800');
+            eliminatedByStatusElement.classList.add('bg-gray-700');
+            eliminatedByStatusElement.innerHTML = `<h4>Runner ${eliminatedBy.id + 1}</h4><p>Shots Remaining: <span id="shots-remaining-${eliminatedBy.id}">${eliminatedBy.shotsRemaining}</span></p><div class="shot-recharge-bar mt-1"><div id="recharge-progress-${eliminatedBy.id}" class="shot-recharge-progress" style="width: 0%;"></div></div>`;
+        }
+
+        // LÓGICA CORRIGIDA: Coloca o pixel do corredor de volta no topo do grid
+        // e força o primeiro movimento para garantir a renderização.
+        eliminatedBy.x = eliminatedBy.initialX;
+        eliminatedBy.y = 1; 
+        eliminatedBy.velocityY = 0;
+        
+        // Força um movimento para a direita para forçar a renderização
+        moveCharacter(eliminatedBy, 1);
+    }
+
+    // ADIÇÃO CRUCIAL: Atribui um novo bloco para o corredor eliminado,
+    // permitindo que ele continue no jogo e tenha a chance de se ressuscitar.
+    characters[runnerToBeEliminated.id].block = newBlock(runnerToBeEliminated.id);
+
+    // Checa se todos os corredores foram eliminados para encerrar o jogo
+    const remainingRunners = characters.filter(c => !c.isEliminated).length;
+    if (remainingRunners === 0) {
+        endGame('The Block Controller wins! All runners were eliminated.');
     }
 }
 
