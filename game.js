@@ -185,21 +185,46 @@ function createGrid() {
 }
 
 function newBlock(controlledByPlayer = -1) {
-    const levelShapes = shapes[currentPolyominoLevel - 1];
-    const shapeIndex = Math.floor(Math.random() * levelShapes.length);
-    const shape = JSON.parse(JSON.stringify(levelShapes[shapeIndex]));
-    const colorIndex = (currentPolyominoLevel - 1 + shapeIndex) % colors.length;
-    const color = colors[colorIndex];
+    let shapeToUse;
+    let colorToUse;
+
+    // A. Verifica se o bloco é para um dos corredores
+    if (controlledByPlayer !== -1) {
+        const runner = characters[controlledByPlayer];
+        
+        // A.1. Se o corredor foi eliminado, gere um triminó com a cor dele
+        if (runner && runner.isEliminated) {
+            const level3Shapes = shapes[2]; // Triminós (nível 3) estão no índice 2
+            const shapeIndex = Math.floor(Math.random() * level3Shapes.length);
+            shapeToUse = JSON.parse(JSON.stringify(level3Shapes[shapeIndex]));
+            colorToUse = runner.color;
+        } else {
+            // A.2. Se o corredor não foi eliminado, retorne null ou algo que não gere um bloco
+            // A lógica `solidifyBlock` só deve gerar um bloco para corredores eliminados.
+            return null;
+        }
+    } else {
+        // B. Se o bloco é para o controlador principal
+        // Mantenha a lógica original de progressão de nível
+        const levelShapes = shapes[currentPolyominoLevel - 1];
+        const shapeIndex = Math.floor(Math.random() * levelShapes.length);
+        shapeToUse = JSON.parse(JSON.stringify(levelShapes[shapeIndex]));
+        const colorIndex = (currentPolyominoLevel - 1 + shapeIndex) % colors.length;
+        colorToUse = colors[colorIndex];
+    }
+    
+    // C. Criação do novo bloco com a forma e a cor determinadas acima
     const newBlock = {
-        shape: shape,
-        color: color,
-        x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2),
-        y: -shape.length,
+        shape: shapeToUse,
+        color: colorToUse,
+        x: Math.floor(COLS / 2) - Math.floor(shapeToUse[0].length / 2),
+        y: -shapeToUse.length,
         isFalling: true,
         controlledByPlayer: controlledByPlayer,
         dropCounter: 0,
         dropInterval: dropInterval
     };
+
     fallingBlocks.push(newBlock);
     return newBlock;
 }
@@ -1273,7 +1298,7 @@ window.addEventListener('keydown', e => {
         return;
     }
 
-    if (e.key === 'p' || e.key === 'P') {
+    if (e.key === 'Escape') {
         togglePause();
     }
     keysPressed[e.key] = true;
