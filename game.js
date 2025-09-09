@@ -62,6 +62,8 @@ let maxShotsPerRunner = 7;
 let shotRechargeTime = 30000;
 let clearLinesEnabled = true;
 let allRunnersEliminated = false;
+let fadingBlocks = [];
+
 
 // State variables for fluid and simultaneous controls
 let keysPressed = {};
@@ -232,6 +234,7 @@ function newBlock(controlledByPlayer = -1) {
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // 1. Draw the permanent grid
     for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
             if (gameGrid[r][c] !== 0) {
@@ -243,6 +246,7 @@ function draw() {
         }
     }
 
+    // 2. Draw the falling blocks (now always solid)
     fallingBlocks.forEach(block => {
         if (block && block.isFalling) {
             for (let r = 0; r < block.shape.length; r++) {
@@ -258,6 +262,32 @@ function draw() {
         }
     });
 
+    // 3. Draw the solidified, fading blocks
+    const now = Date.now();
+    const fadeDuration = 3000; // 3 seconds
+    fadingBlocks.forEach(block => {
+        const age = now - block.solidifiedTime;
+        let opacity = 1 - (age / fadeDuration);
+
+        if (opacity <= 0) {
+            // This block will be removed in the next gameLoop, but we can skip drawing it now
+            return;
+        }
+        
+        ctx.fillStyle = hexToRgba(block.color, opacity);
+        for (let r = 0; r < block.shape.length; r++) {
+            for (let c = 0; c < block.shape[r].length; c++) {
+                if (block.shape[r][c] !== 0) {
+                    ctx.fillRect((block.x + c) * BLOCK_SIZE, (block.y + r) * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+                    // Fade the stroke as well for a better effect
+                    ctx.strokeStyle = hexToRgba('#2d3748', opacity);
+                    ctx.strokeRect((block.x + c) * BLOCK_SIZE, (block.y + r) * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+                }
+            }
+        }
+    });
+
+    // 4. Draw characters and projectiles
     characters.forEach(character => {
         if (!character.isEliminated) {
             ctx.fillStyle = character.color;
@@ -270,6 +300,7 @@ function draw() {
         ctx.fillRect(p.x, p.y, p.width, p.height);
     });
 }
+
 
 function checkBlockCollision(block, offsetX = 0, offsetY = 0) {
     // Check collision with the game grid (solidified blocks)
@@ -531,51 +562,84 @@ function solidifyBlock(block) {
         return;
     }
 
-    for (let r = 0; r < block.shape.length; r++) {
-        for (let c = 0; c < block.shape[r].length; c++) {
-            if (block.shape[r][c] !== 0) {
-                const newX = block.x + c;
-                const newY = block.y + r;
+    // New Logic for Runner Blocks: Check for elimination and then move to fading list
+    if (block.controlledByPlayer !== -1) {
+        let eliminatedSomeone = false;
+        // Check for collisions with other runners
+        for (let r = 0; r < block.shape.length; r++) {
+            for (let c = 0; c < block.shape[r].length; c++) {
+                if (block.shape[r][c] !== 0) {
+                    const newX = block.x + c;
+                    const newY = block.y + r;
 
-                for (const character of characters) {
-                    if (character.isEliminated) continue;
+                    for (const character of characters) {
+                        // Don't check against the character who dropped the block or already eliminated runners
+                        if (character.isEliminated || character.id === block.controlledByPlayer) {
+                            continue;
+                        }
 
-                    const charCol = character.col;
-                    const charRow = Math.floor(character.y / BLOCK_SIZE);
+                        const charCol = character.col;
+                        const charRow = Math.floor(character.y / BLOCK_SIZE);
 
-                    if (newX === charCol && newY === charRow) {
-                        const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
-                        
-                        // Chamada para a função que lida com a eliminação
-                        eliminateRunner(character, playerWhoCausedIt);
+                        if (newX === charCol && newY === charRow) {
+                            const playerWhoCausedIt = characters[block.controlledByPlayer];
+                            eliminateRunner(character, playerWhoCausedIt);
+                            eliminatedSomeone = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        block.solidifiedTime = Date.now();
+        fadingBlocks.push(block);
+    } else {
+        // Original logic for the main controller's blocks
+        for (let r = 0; r < block.shape.length; r++) {
+            for (let c = 0; c < block.shape[r].length; c++) {
+                if (block.shape[r][c] !== 0) {
+                    const newX = block.x + c;
+                    const newY = block.y + r;
+
+                    for (const character of characters) {
+                        if (character.isEliminated) continue;
+
+                        const charCol = character.col;
+                        const charRow = Math.floor(character.y / BLOCK_SIZE);
+
+                        if (newX === charCol && newY === charRow) {
+                            const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
+                            
+                            eliminateRunner(character, playerWhoCausedIt);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (let r = 0; r < block.shape.length; r++) {
+            for (let c = 0; c < block.shape[r].length; c++) {
+                if (block.shape[r][c] !== 0) {
+                    const newY = block.y + r;
+                    const newX = block.x + c;
+                    if (newY >= 0 && newY < ROWS && newX >= 0 && newX < COLS) {
+                        gameGrid[newY][newX] = block.color;
+                    } else {
+                        endGame("The Runners win! The block went out of bounds.");
+                        return;
                     }
                 }
             }
         }
     }
-
-    for (let r = 0; r < block.shape.length; r++) {
-        for (let c = 0; c < block.shape[r].length; c++) {
-            if (block.shape[r][c] !== 0) {
-                const newY = block.y + r;
-                const newX = block.x + c;
-                if (newY >= 0 && newY < ROWS && newX >= 0 && newX < COLS) {
-                    gameGrid[newY][newX] = block.color;
-                } else {
-                    endGame("The Runners win! The block went out of bounds.");
-                    return;
-                }
-            }
-        }
-    }
     
-    // Remove o bloco do array
+    // Remove the block from the fallingBlocks array
     const index = fallingBlocks.indexOf(block);
     if (index > -1) {
         fallingBlocks.splice(index, 1);
     }
     
-    // Corrigindo a lógica: Se o bloco pertencia a um corredor, ele precisa de um novo
+    // Correcting the logic: If the block belonged to a runner, they need a new one
     if (block.controlledByPlayer !== -1) {
         const runner = characters[block.controlledByPlayer];
         if (runner) {
@@ -585,7 +649,18 @@ function solidifyBlock(block) {
         newBlock();
     }
     
-    checkLineClears();
+    // Only check for line clears if it's a main controller block
+    if (block.controlledByPlayer === -1) {
+      checkLineClears();
+    }
+}
+
+function hexToRgba(hex, alpha) {
+    if (!hex) return `rgba(0, 0, 0, ${alpha})`;
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 function startSpecialAction() {
@@ -705,6 +780,16 @@ function gameLoop(time = 0) {
 
     const deltaTime = time - lastTime;
     lastTime = time;
+
+    // NEW LOGIC to remove expired runner blocks from the fading list
+    const nowForLoop = Date.now();
+    for (let i = fadingBlocks.length - 1; i >= 0; i--) {
+        const block = fadingBlocks[i];
+        const age = nowForLoop - block.solidifiedTime;
+        if (age >= 3000) { // 3 seconds lifetime
+            fadingBlocks.splice(i, 1);
+        }
+    }
     
     if (specialActionActive) {
         processSpecialAction(deltaTime);
