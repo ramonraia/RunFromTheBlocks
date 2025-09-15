@@ -63,7 +63,36 @@ let shotRechargeTime = 30000;
 let clearLinesEnabled = true;
 let allRunnersEliminated = false;
 let fadingBlocks = [];
+let eliminatedRunnerBlockCheckTimer = 0;
+const eliminatedRunnerBlockCheckInterval = 1000; // 1 second
 
+// Power-up system variables
+let powerUps = [];
+let powerUpSpawnTimer = 0;
+let pointsSpawnTimer = 0;
+let powerUpSpawnInterval = 0; // Will be set randomly between 20-40 seconds
+let pointsSpawnInterval = 0; // Will be set randomly between 15-30 seconds
+let collectionMessages = [];
+
+// Power-up types and colors
+const POWERUP_TYPES = {
+    JUMP: { type: 'permanent', color: '#bd23e8', maxLevel: 10, name: 'Jump' },
+    SPEED: { type: 'permanent', color: '#de001a', maxLevel: 10, name: 'Speed' },
+    EXTRA_SHOTS: { type: 'permanent', color: '#91ff4d', maxLevel: 10, name: 'Extra Shots' },
+    LIFE: { type: 'consumable', color: '#ff8ac6', maxLevel: 3, name: 'Life' },
+    INVINCIBILITY: { type: 'temporary', color: '#588cfc', duration: 20000, name: 'Invincibility' },
+    POINTS_SMALL: { type: 'points', color: '#fcff3d', value: 10, size: 0.6, name: 'Small Points' },
+    POINTS_MEDIUM: { type: 'points', color: '#fcff3d', value: 20, size: 0.8, name: 'Medium Points' },
+    POINTS_LARGE: { type: 'points', color: '#fcff3d', value: 50, size: 1.0, name: 'Large Points' }
+};
+
+// Initialize power-up spawn intervals
+function resetPowerUpSpawnTimers() {
+    powerUpSpawnInterval = (Math.random() * 20 + 20) * 1000; // 20-40 seconds
+    pointsSpawnInterval = (Math.random() * 15 + 15) * 1000; // 15-30 seconds
+    powerUpSpawnTimer = 0;
+    pointsSpawnTimer = 0;
+}
 
 // State variables for fluid and simultaneous controls
 let keysPressed = {};
@@ -186,6 +215,16 @@ function createGrid() {
     return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
 }
 
+function checkEliminatedRunnersBlocks() {
+    characters.forEach(character => {
+        if (character.isEliminated && !character.block) {
+            // Give them a new block immediately
+            character.block = newBlock(character.id);
+            console.log(`Gave new block to eliminated runner ${character.id + 1}`);
+        }
+    });
+}
+
 function newBlock(controlledByPlayer = -1) {
     let shapeToUse;
     let colorToUse;
@@ -287,18 +326,34 @@ function draw() {
         }
     });
 
-    // 4. Draw characters and projectiles
-    characters.forEach(character => {
-        if (!character.isEliminated) {
-            ctx.fillStyle = character.color;
-            ctx.fillRect(character.x, character.y, character.width, character.height);
+    // 4. Draw power-ups
+drawPowerUps();
+
+// Also modify the character drawing to show invincibility effect:
+// 5. Draw characters and projectiles
+characters.forEach(character => {
+    if (!character.isEliminated) {
+        // Show invincibility effect
+        if (character.isInvincible) {
+            const alpha = Math.sin(Date.now() / 100) * 0.3 + 0.7;
+            ctx.globalAlpha = alpha;
         }
-    });
+        
+        ctx.fillStyle = character.color;
+        ctx.fillRect(character.x, character.y, character.width, character.height);
+        
+        ctx.globalAlpha = 1.0;
+    }
+});
+
 
     projectiles.forEach(p => {
         ctx.fillStyle = p.color;
         ctx.fillRect(p.x, p.y, p.width, p.height);
     });
+
+// 6. Draw collection messages
+drawCollectionMessages();
 }
 
 
@@ -443,9 +498,11 @@ function checkCrushCollision(block, offsetX = 0, offsetY = 0) {
                     if (blockCol === charCol && blockRow === charTopRow) {
                         potentialCrushers.push(character);
                     } else if (blockCol === charCol && blockRow > charTopRow && blockRow <= charBottomRow) {
-                        const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
-                        
-                        eliminateRunner(character, playerWhoCausedIt);
+                        // Check invincibility and lives before eliminating
+                        if (!character.isInvincible) {
+                            const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
+                            eliminateRunner(character, playerWhoCausedIt);
+                        }
                         return true;
                     }
                 }
@@ -504,8 +561,11 @@ function checkAndPushRunners(block, dir) {
             }
 
             if (isBlockedByGrid || isPushedIntoMovingBlock) {
-                const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
-                eliminateRunner(character, playerWhoCausedIt);
+                // Check invincibility before eliminating
+                if (!character.isInvincible) {
+                    const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
+                    eliminateRunner(character, playerWhoCausedIt);
+                }
             } else {
                 character.col = nextCharCol;
                 character.x = character.col * BLOCK_SIZE;
@@ -562,6 +622,31 @@ function solidifyBlock(block) {
         return;
     }
 
+    // Check for character collisions before solidifying
+    for (let r = 0; r < block.shape.length; r++) {
+        for (let c = 0; c < block.shape[r].length; c++) {
+            if (block.shape[r][c] !== 0) {
+                const newX = block.x + c;
+                const newY = block.y + r;
+
+                for (const character of characters) {
+                    if (character.isEliminated) continue;
+
+                    const charCol = character.col;
+                    const charRow = Math.floor(character.y / BLOCK_SIZE);
+
+                    if (newX === charCol && newY === charRow) {
+                        // Check invincibility before eliminating
+                        if (!character.isInvincible) {
+                            const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
+                            eliminateRunner(character, playerWhoCausedIt);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // New Logic for Runner Blocks: Check for elimination and then move to fading list
     if (block.controlledByPlayer !== -1) {
         let eliminatedSomeone = false;
@@ -582,9 +667,12 @@ function solidifyBlock(block) {
                         const charRow = Math.floor(character.y / BLOCK_SIZE);
 
                         if (newX === charCol && newY === charRow) {
-                            const playerWhoCausedIt = characters[block.controlledByPlayer];
-                            eliminateRunner(character, playerWhoCausedIt);
-                            eliminatedSomeone = true;
+                            // Check invincibility before eliminating
+                            if (!character.isInvincible) {
+                                const playerWhoCausedIt = characters[block.controlledByPlayer];
+                                eliminateRunner(character, playerWhoCausedIt);
+                                eliminatedSomeone = true;
+                            }
                         }
                     }
                 }
@@ -608,9 +696,11 @@ function solidifyBlock(block) {
                         const charRow = Math.floor(character.y / BLOCK_SIZE);
 
                         if (newX === charCol && newY === charRow) {
-                            const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
-                            
-                            eliminateRunner(character, playerWhoCausedIt);
+                            // Check invincibility before eliminating
+                            if (!character.isInvincible) {
+                                const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
+                                eliminateRunner(character, playerWhoCausedIt);
+                            }
                         }
                     }
                 }
@@ -781,6 +871,13 @@ function gameLoop(time = 0) {
     const deltaTime = time - lastTime;
     lastTime = time;
 
+    // NEW: Check eliminated runners' blocks every 10 seconds
+    eliminatedRunnerBlockCheckTimer += deltaTime;
+    if (eliminatedRunnerBlockCheckTimer >= eliminatedRunnerBlockCheckInterval) {
+        checkEliminatedRunnersBlocks();
+        eliminatedRunnerBlockCheckTimer = 0;
+    }
+
     // NEW LOGIC to remove expired runner blocks from the fading list
     const nowForLoop = Date.now();
     for (let i = fadingBlocks.length - 1; i >= 0; i--) {
@@ -845,19 +942,29 @@ function gameLoop(time = 0) {
         blockMoveCounter = 0;
     }
 
+    // Update the runnerMoveCounter logic - FASTER BASE MOVEMENT
     runnerMoveCounter += deltaTime;
     if (runnerMoveCounter > runnerMoveInterval) {
         if (characters[0] && !characters[0].isEliminated) {
-            if (keysPressed['ArrowLeft']) { moveCharacter(characters[0], -1); }
-            if (keysPressed['ArrowRight']) { moveCharacter(characters[0], 1); }
+            const moveSpeed = characters[0].baseMoveSpeed - (characters[0].speedLevel * 15); // Increased from 8 to 15
+            if (runnerMoveCounter > moveSpeed) {
+                if (keysPressed['ArrowLeft']) { moveCharacter(characters[0], -1); }
+                if (keysPressed['ArrowRight']) { moveCharacter(characters[0], 1); }
+            }
         }
         if (characters[1] && !characters[1].isEliminated) {
-            if (keysPressed['f'] || keysPressed['F']) { moveCharacter(characters[1], -1); }
-            if (keysPressed['h'] || keysPressed['H']) { moveCharacter(characters[1], 1); }
+            const moveSpeed = characters[1].baseMoveSpeed - (characters[1].speedLevel * 15);
+            if (runnerMoveCounter > moveSpeed) {
+                if (keysPressed['f'] || keysPressed['F']) { moveCharacter(characters[1], -1); }
+                if (keysPressed['h'] || keysPressed['H']) { moveCharacter(characters[1], 1); }
+            }
         }
         if (characters[2] && !characters[2].isEliminated) {
-            if (keysPressed['j'] || keysPressed['J']) { moveCharacter(characters[2], -1); }
-            if (keysPressed['l'] || keysPressed['L']) { moveCharacter(characters[2], 1); }
+            const moveSpeed = characters[2].baseMoveSpeed - (characters[2].speedLevel * 15);
+            if (runnerMoveCounter > moveSpeed) {
+                if (keysPressed['j'] || keysPressed['J']) { moveCharacter(characters[2], -1); }
+                if (keysPressed['l'] || keysPressed['L']) { moveCharacter(characters[2], 1); }
+            }
         }
         runnerMoveCounter = 0;
     }
@@ -865,7 +972,7 @@ function gameLoop(time = 0) {
     characters.forEach(character => {
         if (character.isEliminated) return;
 
-        // Lógica de ressurreição aprimorada: força a queda inicial
+        // Enhanced respawn logic: force initial fall
         if (character.isRespawning) {
             character.y = 0;
             character.velocityY = 0;
@@ -875,7 +982,7 @@ function gameLoop(time = 0) {
         character.velocityY += character.gravity;
         character.y += character.velocityY;
         
-        fallingBlocks.forEach(block => {
+                fallingBlocks.forEach(block => {
             if (block && block.isFalling && character.velocityY < 0) {
                 const charHeadY = character.y;
                 const charCol = character.col;
@@ -891,8 +998,11 @@ function gameLoop(time = 0) {
                                 character.x < blockPieceX + BLOCK_SIZE &&
                                 character.x + character.width > blockPieceX) {
                                 
-                                const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
-                                eliminateRunner(character, playerWhoCausedIt);
+                                // Check invincibility before eliminating
+                                if (!character.isInvincible) {
+                                    const playerWhoCausedIt = block.controlledByPlayer !== -1 ? characters[block.controlledByPlayer] : null;
+                                    eliminateRunner(character, playerWhoCausedIt);
+                                }
                                 return; 
                             }
                         }
@@ -900,11 +1010,15 @@ function gameLoop(time = 0) {
                 }
             }
         });
+
         
         checkLandingCollision(character);
 
-        if (character.y > canvas.height) {
-            eliminateRunner(character);
+            if (character.y > canvas.height) {
+            // Check invincibility before eliminating (though falling off should probably always eliminate)
+            if (!character.isInvincible) {
+                eliminateRunner(character);
+            }
         }
     });
 
@@ -996,6 +1110,7 @@ function gameLoop(time = 0) {
 
     draw();
     requestAnimationFrame(gameLoop);
+    updatePowerUps(deltaTime);
 }
 
 function rotate(block) {
@@ -1051,9 +1166,8 @@ function softDrop(block) {
 }
 
 function jump(character) {
-    const jumpStrength = 10;
     if (character && !character.isEliminated && character.isStanding) {
-        character.velocityY = -jumpStrength;
+        character.velocityY = -character.jumpStrength; // Now uses character's jumpStrength instead of fixed 10
         character.isStanding = false;
     }
 }
@@ -1102,33 +1216,62 @@ function rechargeShots(character) {
 function eliminateRunner(runnerToBeEliminated, eliminatedBy = null) {
     if (runnerToBeEliminated.isEliminated) return;
 
-    // Lógica de eliminação padrão, executada para todos os casos
+    // Check if runner has lives - FIXED: now checks if lives > 0 instead of lives > 1
+    if (runnerToBeEliminated.lives > 0) {
+        runnerToBeEliminated.lives--;
+        showCollectionMessage("Life Used", runnerToBeEliminated);
+        updateRunnerStatusUI();
+        
+        runnerToBeEliminated.isInvincible = true;
+        runnerToBeEliminated.invincibilityEndTime = Date.now() + 1000;
+        
+        return; // Don't eliminate, just use a life
+    }
+
+    // Standard elimination logic - only happens when lives = 0
     runnerToBeEliminated.isEliminated = true;
+    
+    // Reset power-ups but keep points visible and subtract 100
+    runnerToBeEliminated.jumpLevel = 0;
+    runnerToBeEliminated.speedLevel = 0;
+    runnerToBeEliminated.extraShotsLevel = 0;
+    runnerToBeEliminated.lives = 0;
+    runnerToBeEliminated.isInvincible = false;
+    runnerToBeEliminated.jumpStrength = runnerToBeEliminated.baseJumpStrength;
+    runnerToBeEliminated.shotsRemaining = 5;
+    
+    // Lose 100 points (can go negative)
+    runnerToBeEliminated.points -= 100;
+    
     const statusElement = document.getElementById(`runner-status-${runnerToBeEliminated.id}`);
     if (statusElement) {
         statusElement.classList.add('bg-red-800');
         statusElement.classList.remove('bg-gray-700');
-        statusElement.innerHTML = `<h4>Runner ${runnerToBeEliminated.id + 1}</h4><p class="text-red-300">Eliminated!</p>`;
+        statusElement.innerHTML = `<h4>Runner ${runnerToBeEliminated.id + 1}</h4><p class="text-red-300">Eliminated!</p><p><strong>Points:</strong> ${runnerToBeEliminated.points}</p>`;
     }
     
-    // Desativa a colisão e a gravidade do personagem eliminado
     runnerToBeEliminated.velocityY = 0;
-    // Remove o personagem visualmente do jogo
     runnerToBeEliminated.x = -100;
     runnerToBeEliminated.y = -100;
-    
-    // Adição para garantir que o bloco do corredor é nulo
     runnerToBeEliminated.block = null;
 
-    // Lógica para lidar com os projéteis do jogador eliminado
     projectiles = projectiles.filter(p => p.controlledByPlayer !== runnerToBeEliminated.id);
 
-    // Nova Lógica: Checa se a eliminação foi causada por um corredor já eliminado
-    // E ressuscitá-lo em troca.
+    // Revival logic
     if (eliminatedBy && eliminatedBy.isEliminated) {
         eliminatedBy.isEliminated = false;
         
-        // Remove o bloco que ele estava controlando
+        // Reset power-ups for revived runner but add 70 points
+        eliminatedBy.jumpLevel = 0;
+        eliminatedBy.speedLevel = 0;
+        eliminatedBy.extraShotsLevel = 0;
+        eliminatedBy.lives = 0;
+        eliminatedBy.isInvincible = false;
+        eliminatedBy.jumpStrength = eliminatedBy.baseJumpStrength;
+        eliminatedBy.shotsRemaining = 5;
+        
+        eliminatedBy.points += 70;
+
         if (eliminatedBy.block) {
             const index = fallingBlocks.indexOf(eliminatedBy.block);
             if (index > -1) {
@@ -1141,28 +1284,78 @@ function eliminateRunner(runnerToBeEliminated, eliminatedBy = null) {
         if (eliminatedByStatusElement) {
             eliminatedByStatusElement.classList.remove('bg-red-800');
             eliminatedByStatusElement.classList.add('bg-gray-700');
-            eliminatedByStatusElement.innerHTML = `<h4>Runner ${eliminatedBy.id + 1}</h4><p>Shots Remaining: <span id="shots-remaining-${eliminatedBy.id}">${eliminatedBy.shotsRemaining}</span></p><div class="shot-recharge-bar mt-1"><div id="recharge-progress-${eliminatedBy.id}" class="shot-recharge-progress" style="width: 0%;"></div></div>`;
         }
 
-        // LÓGICA CORRIGIDA: Coloca o pixel do corredor de volta no topo do grid
-        // e força o primeiro movimento para garantir a renderização.
         eliminatedBy.x = eliminatedBy.initialX;
         eliminatedBy.y = 1; 
         eliminatedBy.velocityY = 0;
         
-        // Força um movimento para a direita para forçar a renderização
         moveCharacter(eliminatedBy, 1);
+        updateRunnerStatusUI();
+        
+        // Don't end the game if someone was revived
+        return;
     }
 
-    // ADIÇÃO CRUCIAL: Atribui um novo bloco para o corredor eliminado,
-    // permitindo que ele continue no jogo e tenha a chance de se ressuscitar.
     characters[runnerToBeEliminated.id].block = newBlock(runnerToBeEliminated.id);
+    updateRunnerStatusUI();
 
-    // Checa se todos os corredores foram eliminados para encerrar o jogo
     const remainingRunners = characters.filter(c => !c.isEliminated).length;
     if (remainingRunners === 0) {
         endGame('The Block Controller wins! All runners were eliminated.');
     }
+}
+
+function updateRunnerStatusUI() {
+    characters.forEach((character, index) => {
+        const statusElement = document.getElementById(`runner-status-${index}`);
+        if (!statusElement || character.isEliminated) return;
+        
+        // Create progress bars for permanent power-ups
+        const jumpProgress = (character.jumpLevel / 10) * 100;
+        const speedProgress = (character.speedLevel / 10) * 100;
+        
+        // Lives display
+        let livesDisplay = '';
+        for (let i = 0; i < 3; i++) {
+            livesDisplay += i < character.lives ? '♥' : '♡';
+        }
+        
+        const totalShots = maxShotsPerRunner + character.extraShotsLevel;
+        
+        statusElement.innerHTML = `
+            <h4 style="color:${character.color}">Runner ${index + 1}</h4>
+            <p>Points: ${character.points}</p>
+            <p>Lives: ${livesDisplay}</p>
+            <p>Shots: <span id="shots-remaining-${index}">${character.shotsRemaining}</span>/${totalShots}</p>
+            <div class="power-up-bar">
+                <span>Jump:</span>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${jumpProgress}%; background-color: #bd23e8;"></div>
+                </div>
+            </div>
+            <div class="power-up-bar">
+                <span>Speed:</span>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${speedProgress}%; background-color: #de001a;"></div>
+                </div>
+            </div>
+            <div class="shot-recharge-bar mt-1">
+                <div id="recharge-progress-${index}" class="shot-recharge-progress" style="width: 0%;"></div>
+            </div>
+        `;
+    });
+}
+
+function createRunnerStatusUI() {
+    runnerStatusContainer.innerHTML = '';
+    characters.forEach((character, index) => {
+        const statusDiv = document.createElement('div');
+        statusDiv.id = `runner-status-${index}`;
+        statusDiv.className = 'player-status-item';
+        runnerStatusContainer.appendChild(statusDiv);
+    });
+    updateRunnerStatusUI();
 }
 
 function togglePause() {
@@ -1317,7 +1510,7 @@ function startGame() {
     clearLinesEnabled = clearLinesCheck.checked;
 
     linesRemaining = isNaN(parsedLines) || parsedLines <= 0 ? 70 : parsedLines;
-    maxShotsPerRunner = isNaN(parsedMaxShots) || parsedMaxShots <= 0 ? 7 : parsedMaxShots;
+    maxShotsPerRunner = 5;
     shotRechargeTime = isNaN(parsedRechargeTime) || parsedRechargeTime <= 0 ? 30000 : parsedRechargeTime * 1000;
     dropInterval = speedOptions[selectedSpeed] || 500;
     gameTime = isNaN(parsedTime) || parsedTime <= 0 ? 300 : parsedTime * 60;
@@ -1335,23 +1528,38 @@ function startGame() {
     
     specialActionActive = false;
     isSpecialActionReady = false;
+    powerUps = [];
+    resetPowerUpSpawnTimers();
 
     const runnerColors = ['#fde047', '#a78bfa', '#4ade80'];
-    for (let i = 0; i < runnerCount; i++) {
-        characters.push({
-            id: i,
-            col: Math.floor(COLS / 2) - 2 + i * 2,
-            x: (Math.floor(COLS / 2) - 2 + i * 2) * BLOCK_SIZE,
-            y: canvas.height - BLOCK_SIZE,
-            width: BLOCK_SIZE, height: BLOCK_SIZE,
-            color: runnerColors[i],
-            isStanding: false, velocityY: 0, gravity: 0.5, jumpStrength: 10,
-            shotsRemaining: maxShotsPerRunner,
-            isEliminated: false,
-            block: null
-        });
-    }
-
+   for (let i = 0; i < runnerCount; i++) {
+    characters.push({
+        id: i,
+        col: Math.floor(COLS / 2) - 2 + i * 2,
+        x: (Math.floor(COLS / 2) - 2 + i * 2) * BLOCK_SIZE,
+        y: canvas.height - BLOCK_SIZE,
+        width: BLOCK_SIZE, height: BLOCK_SIZE,
+        color: runnerColors[i],
+        isStanding: false, velocityY: 0, gravity: 0.5, 
+        jumpStrength: 8, // Reduced from 10
+        shotsRemaining: 5, // Reduced from maxShotsPerRunner
+        isEliminated: false,
+        block: null,
+        // Power-up properties
+        jumpLevel: 0,
+        speedLevel: 0,
+        extraShotsLevel: 0,
+        lives: 0,
+        isInvincible: false,
+        invincibilityEndTime: 0,
+        baseJumpStrength: 8, // Reduced base
+        baseMoveSpeed: 60, // Slower base speed
+        points: 0,
+        // Store initial position for respawning
+        initialX: (Math.floor(COLS / 2) - 2 + i * 2) * BLOCK_SIZE,
+        initialCol: Math.floor(COLS / 2) - 2 + i * 2
+    });
+}
     // Cria o primeiro bloco para o controlador original
     newBlock();
 
@@ -1371,6 +1579,375 @@ function startGame() {
     specialActionContainer.style.display = isSpecialActionEnabled ? 'block' : 'none';
 
     requestAnimationFrame(gameLoop);
+}
+
+function spawnPowerUp() {
+    const powerUpTypes = ['JUMP', 'SPEED', 'EXTRA_SHOTS', 'LIFE', 'INVINCIBILITY'];
+    const randomType = powerUpTypes[Math.floor(Math.random() * powerUpTypes.length)];
+    
+    const powerUp = {
+        type: randomType,
+        x: Math.floor(Math.random() * COLS),
+        y: -2.0, // Start higher above screen
+        velocityY: 0,
+        isStanding: false,
+        spawnTime: Date.now(),
+        lifetime: 25000
+    };
+    
+    powerUps.push(powerUp);
+}
+
+function spawnPoints() {
+    const rand = Math.random();
+    let pointType;
+    
+    if (rand < 0.70) {
+        pointType = 'POINTS_SMALL';
+    } else if (rand < 0.85) {
+        pointType = 'POINTS_MEDIUM';
+    } else {
+        pointType = 'POINTS_LARGE';
+    }
+    
+    const points = {
+        type: pointType,
+        x: Math.floor(Math.random() * COLS),
+        y: -2.0, // Start higher above screen
+        velocityY: 0,
+        isStanding: false,
+        spawnTime: Date.now(),
+        lifetime: 25000
+    };
+    
+    powerUps.push(points);
+}
+
+function spawnPoints() {
+    const rand = Math.random();
+    let pointType;
+    
+    if (rand < 0.70) {
+        pointType = 'POINTS_SMALL';
+    } else if (rand < 0.85) {
+        pointType = 'POINTS_MEDIUM';
+    } else {
+        pointType = 'POINTS_LARGE';
+    }
+    
+    const points = {
+        type: pointType,
+        x: Math.floor(Math.random() * COLS),
+        y: -1.0, // Start above screen with fractional position
+        velocityY: 0,
+        gravity: 0.1, // Smoother gravity
+        isStanding: false,
+        spawnTime: Date.now(),
+        lifetime: 25000 // 25 seconds
+    };
+    
+    powerUps.push(points);
+}
+
+function spawnPoints() {
+    const rand = Math.random();
+    let pointType;
+    
+    if (rand < 0.70) {
+        pointType = 'POINTS_SMALL';
+    } else if (rand < 0.85) {
+        pointType = 'POINTS_MEDIUM';
+    } else {
+        pointType = 'POINTS_LARGE';
+    }
+    
+    const points = {
+        type: pointType,
+        x: Math.floor(Math.random() * COLS),
+        y: -1,
+        velocityY: 0,
+        gravity: 0.3,
+        isStanding: false,
+        spawnTime: Date.now(),
+        lifetime: 25000 // 25 seconds
+    };
+    
+    powerUps.push(points);
+}
+
+function updatePowerUps(deltaTime) {
+    const now = Date.now();
+    
+    // Update spawn timers
+    powerUpSpawnTimer += deltaTime;
+    pointsSpawnTimer += deltaTime;
+    
+    // Spawn power-ups
+    if (powerUpSpawnTimer >= powerUpSpawnInterval) {
+        spawnPowerUp();
+        powerUpSpawnInterval = (Math.random() * 20 + 20) * 1000;
+        powerUpSpawnTimer = 0;
+    }
+    
+    // Spawn points
+    if (pointsSpawnTimer >= pointsSpawnInterval) {
+        spawnPoints();
+        pointsSpawnInterval = (Math.random() * 15 + 15) * 1000;
+        pointsSpawnTimer = 0;
+    }
+    
+    // Update power-up physics and remove expired ones
+    for (let i = powerUps.length - 1; i >= 0; i--) {
+        const powerUp = powerUps[i];
+        
+        // Check if expired
+        if (now - powerUp.spawnTime > powerUp.lifetime) {
+            powerUps.splice(i, 1);
+            continue;
+        }
+        
+        // Physics - only stop on solidified blocks, not falling blocks
+        if (!powerUp.isStanding) {
+            powerUp.velocityY += 0.005;
+            powerUp.velocityY = Math.min(powerUp.velocityY, 0.1);
+            
+            const nextY = powerUp.y + powerUp.velocityY;
+            const nextRow = Math.floor(nextY);
+            
+            // Check collision with ground
+            if (nextY >= ROWS - 1) {
+                powerUp.y = ROWS - 1;
+                powerUp.isStanding = true;
+                powerUp.velocityY = 0;
+            }
+            // Only check collision with solidified blocks in gameGrid
+            else if (nextRow >= 0 && nextRow < ROWS && gameGrid[nextRow][powerUp.x] !== 0) {
+                // Place on top of the block properly
+                powerUp.y = nextRow - 1.0;
+                powerUp.isStanding = true;
+                powerUp.velocityY = 0;
+            } else {
+                powerUp.y = nextY;
+            }
+        }
+        
+        // Improved collection detection
+        characters.forEach(character => {
+            if (!character.isEliminated) {
+                const charCol = character.col;
+                const charRow = Math.floor(character.y / BLOCK_SIZE);
+                const charBottomRow = Math.floor((character.y + character.height - 1) / BLOCK_SIZE);
+                const powerUpRow = Math.floor(powerUp.y);
+                
+                // Check if runner is touching the power-up
+                if (charCol === powerUp.x && 
+                    ((charRow <= powerUpRow && charBottomRow >= powerUpRow) ||
+                     (powerUpRow <= charRow && powerUpRow >= charBottomRow - 1))) {
+                    
+                    const config = POWERUP_TYPES[powerUp.type];
+                    showCollectionMessage(config.name, character);
+                    collectPowerUp(character, powerUp);
+                    powerUps.splice(i, 1);
+                }
+            }
+        });
+    }
+    
+    // Update collection messages
+    updateCollectionMessages();
+    
+    // Update temporary power-ups
+    characters.forEach(character => {
+        if (character.isInvincible && now > character.invincibilityEndTime) {
+            character.isInvincible = false;
+        }
+    });
+}
+
+function collectPowerUp(character, powerUp) {
+    const powerUpConfig = POWERUP_TYPES[powerUp.type];
+    
+    switch (powerUpConfig.type) {
+        case 'permanent':
+            if (powerUp.type === 'JUMP') {
+                if (character.jumpLevel < powerUpConfig.maxLevel) {
+                    character.jumpLevel++;
+                    character.jumpStrength = character.baseJumpStrength + (character.jumpLevel * 3.5); // Increased from 2.5 to 3.5
+                } else {
+                    character.points += 10;
+                }
+            } else if (powerUp.type === 'SPEED') {
+                if (character.speedLevel < powerUpConfig.maxLevel) {
+                    character.speedLevel++;
+                    // Speed improvement handled in movement logic (now 15 instead of 8)
+                } else {
+                    character.points += 10;
+                }
+            } else if (powerUp.type === 'EXTRA_SHOTS') {
+                if (character.extraShotsLevel < powerUpConfig.maxLevel) {
+                    character.extraShotsLevel++;
+                    character.shotsRemaining++;
+                } else {
+                    character.points += 10;
+                }
+            }
+            break;
+            
+        case 'consumable':
+            if (powerUp.type === 'LIFE') {
+                if (character.lives < powerUpConfig.maxLevel) {
+                    character.lives++;
+                } else {
+                    character.points += 10;
+                }
+            }
+            break;
+            
+        case 'temporary':
+            if (powerUp.type === 'INVINCIBILITY') {
+                character.isInvincible = true;
+                character.invincibilityEndTime = Date.now() + powerUpConfig.duration;
+            }
+            break;
+            
+        case 'points':
+            character.points += powerUpConfig.value;
+            break;
+    }
+    
+    updateRunnerStatusUI();
+}
+
+function updateRunnerStatusUI() {
+    characters.forEach((character, index) => {
+        const statusElement = document.getElementById(`runner-status-${index}`);
+        if (!statusElement || character.isEliminated) return;
+        
+        // Create clearer progress bars for permanent power-ups
+        const jumpProgress = (character.jumpLevel / 10) * 100;
+        const speedProgress = (character.speedLevel / 10) * 100;
+        
+        // Lives display with hearts
+        let livesDisplay = '';
+        for (let i = 0; i < 3; i++) {
+            livesDisplay += i < character.lives ? '♥' : '♡';
+        }
+        
+        const totalShots = maxShotsPerRunner + character.extraShotsLevel;
+        
+        statusElement.innerHTML = `
+            <h4 style="color:${character.color}">Runner ${index + 1}</h4>
+            <p><strong>Points:</strong> ${character.points}</p>
+            <p><strong>Lives:</strong> ${livesDisplay}</p>
+            <p><strong>Shots:</strong> <span id="shots-remaining-${index}">${character.shotsRemaining}</span>/${totalShots}</p>
+            <div class="power-up-bar" style="margin: 4px 0;">
+                <span style="font-size: 11px; color: #bd23e8;"><strong>Jump (${character.jumpLevel}/10):</strong></span>
+                <div class="progress-bar" style="width: 100%; height: 8px; background-color: #333; border: 1px solid #666; margin: 2px 0;">
+                    <div class="progress-fill" style="width: ${jumpProgress}%; height: 100%; background-color: #bd23e8; transition: width 0.3s;"></div>
+                </div>
+            </div>
+            <div class="power-up-bar" style="margin: 4px 0;">
+                <span style="font-size: 11px; color: #de001a;"><strong>Speed (${character.speedLevel}/10):</strong></span>
+                <div class="progress-bar" style="width: 100%; height: 8px; background-color: #333; border: 1px solid #666; margin: 2px 0;">
+                    <div class="progress-fill" style="width: ${speedProgress}%; height: 100%; background-color: #de001a; transition: width 0.3s;"></div>
+                </div>
+            </div>
+            <div class="shot-recharge-bar" style="margin: 4px 0;">
+                <span style="font-size: 10px; color: #888;">Recharge:</span>
+                <div style="width: 100%; height: 6px; background-color: #333; border: 1px solid #666; margin: 2px 0;">
+                    <div id="recharge-progress-${index}" class="shot-recharge-progress" style="width: 0%; height: 100%; background-color: #4ade80;"></div>
+                </div>
+            </div>
+        `;
+    });
+}
+
+function drawPowerUps() {
+    const now = Date.now();
+    
+    powerUps.forEach(powerUp => {
+        const config = POWERUP_TYPES[powerUp.type];
+        let size = BLOCK_SIZE;
+        
+        if (config.type === 'points') {
+            size = BLOCK_SIZE * config.size;
+        }
+        
+        const x = powerUp.x * BLOCK_SIZE + (BLOCK_SIZE - size) / 2;
+        const y = powerUp.y * BLOCK_SIZE + (BLOCK_SIZE - size) / 2;
+        
+        // Draw glow effect
+        const glowIntensity = Math.sin(now / 200) * 0.3 + 0.7;
+        ctx.save();
+        ctx.shadowColor = config.color;
+        ctx.shadowBlur = 8 * glowIntensity;
+        ctx.fillStyle = config.color;
+        ctx.fillRect(x, y, size, size);
+        ctx.restore();
+        
+        // Draw border
+        ctx.strokeStyle = '#2d3748';
+        ctx.strokeRect(x, y, size, size);
+        
+        // Add pulsing glow overlay
+        ctx.save();
+        ctx.globalAlpha = glowIntensity * 0.3;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x + 2, y + 2, size - 4, size - 4);
+        ctx.restore();
+        
+        // Add blinking effect for items about to expire
+        const timeLeft = powerUp.lifetime - (now - powerUp.spawnTime);
+        if (timeLeft < 5000 && Math.floor(now / 200) % 2) {
+            ctx.save();
+            ctx.globalAlpha = 0.5;
+            ctx.fillStyle = '#ff0000';
+            ctx.fillRect(x, y, size, size);
+            ctx.restore();
+        }
+    });
+}
+
+function showCollectionMessage(powerUpName, character) {
+    const message = {
+        text: powerUpName,
+        x: character.x,
+        y: character.y - 20,
+        color: character.color,
+        startTime: Date.now(),
+        duration: 3000 // 3 seconds
+    };
+    collectionMessages.push(message);
+}
+
+function updateCollectionMessages() {
+    const now = Date.now();
+    for (let i = collectionMessages.length - 1; i >= 0; i--) {
+        const message = collectionMessages[i];
+        if (now - message.startTime > message.duration) {
+            collectionMessages.splice(i, 1);
+        } else {
+            // Make message float upward
+            message.y -= 0.5;
+        }
+    }
+}
+
+
+function drawCollectionMessages() {
+    const now = Date.now();
+    collectionMessages.forEach(message => {
+        const age = now - message.startTime;
+        const alpha = Math.max(0, 1 - (age / message.duration));
+        
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = message.color;
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(message.text, message.x + BLOCK_SIZE/2, message.y);
+        ctx.restore();
+    });
 }
 
 window.addEventListener('keydown', e => {
